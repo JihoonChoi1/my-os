@@ -1,31 +1,42 @@
-; boot.asm - My First Bootloader
-; 
-; Logic Explanation:
-; 1. The BIOS loads this code into memory at 0x7c00.
-; 2. We use BIOS interrupt 0x10 with AH=0x0e to print characters.
-; 3. We pad the file to 512 bytes and add the boot signature.
+; boot.asm - Step 2: Stack Setup & String Printing Function
+;
+; [Change Log]
+; 1. Stack Initialization (BP/SP -> 0x8000):
+;    - Created a safe stack space away from the bootloader code (0x7c00).
+;    - This is essential for using 'call'/'ret' instructions and preparing for C code.
+;
+; 2. Function Implementation (print_string):
+;    - Replaced repetitive manual 'int 0x10' calls with a reusable loop.
+;    - Uses SI register as a pointer to iterate through memory.
+;    - Implements C-style null-terminated string logic (stops when it hits 0).
 
-[org 0x7c00]    ; All commands act as if they are at memory 0x7c00
+[org 0x7c00]  
 
-mov ah, 0x0e    ; Set AH to 0x0e (Teletype mode: print char to screen)
 
-mov al, 'H'     ; Put 'H' into AL
-int 0x10        ; Call BIOS interrupt (BIOS checks AH and acts)
+mov bp, 0x8000 
+mov sp, bp     
 
-mov al, 'e'
-int 0x10
+; [2] 문자열 출력 준비
+mov si, msg_hello  
+call print_string  
 
-mov al, 'l'
-int 0x10
+jmp $           
 
-mov al, 'l'
-int 0x10
 
-mov al, 'o'
-int 0x10
+print_string:
+    mov ah, 0x0e      
+.loop:
+    mov al, [si]    
+    cmp al, 0       
+    je .done         
+    
+    int 0x10          
+    add si, 1         
+    jmp .loop         
+.done:
+    ret             
 
-jmp $           ; Jump to current position (Infinite Loop)
+msg_hello: db 'Hello, Operating System World!', 0 
 
-; Padding and Signature
-times 510-($-$$) db 0  ; Fill the rest with zeros until 510th byte
-dw 0xaa55              ; The Magic Number (Boot Signature)
+times 510-($-$$) db 0
+dw 0xaa55
