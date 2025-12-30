@@ -211,6 +211,8 @@ init_pm:
     ; 9. Verification (Print "PM" to screen using video memory)
     call print_string_pm
 
+    call 0x1000                     ; Jump to Kernel
+
     jmp $                           ; Infinite loop in 32-bit mode (OS is running)
 
 
