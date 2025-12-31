@@ -40,7 +40,7 @@ load_kernel:
     call print_string
 
     mov bx, 0x1000       ; [destination] address where kernel will get copied
-    mov dh, 1            ; [quantity] quantity of sector to be read (1 for now)
+    mov dh, 15           ; [quantity] quantity of sector to be read (1 for now)
     mov dl, [BOOT_DRIVE] ;  restore backuped drive number
     call disk_load       ; -> calls disk load function
     ret

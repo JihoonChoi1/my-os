@@ -74,6 +74,7 @@ nasm boot.asm -f bin -o boot.bin && \
 nasm kernel_entry.asm -f elf -o kernel_entry.o && \
 x86_64-elf-gcc -ffreestanding -c kernel.c -o kernel.o -m32 && \
 x86_64-elf-ld -o kernel.bin -Ttext 0x1000 kernel_entry.o kernel.o --oformat binary -m elf_i386 && \
-cat boot.bin kernel.bin > os-image.bin && \
+dd if=/dev/zero of=zeros.bin bs=512 count=20 && \
+cat boot.bin kernel.bin zeros.bin > os-image.bin && \
 qemu-system-x86_64 -drive format=raw,file=os-image.bin
 ```
