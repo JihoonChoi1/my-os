@@ -41,6 +41,21 @@ unsigned char port_byte_in(unsigned short port)
     return result;
 }
 
+/* --- Helper Function: Memory Copy --- */
+
+/**
+ * Copy bytes from one memory location to another.
+ * Essential for scrolling (moving lines up).
+ * This mimics the standard C library function 'memcpy'.
+ */
+void memory_copy(char *source, char *dest, int nbytes)
+{
+    for (int i = 0; i < nbytes; i++)
+    {
+        *(dest + i) = *(source + i);
+    }
+}
+
 /* --- Cursor Control Functions --- */
 
 /**
@@ -97,6 +112,42 @@ void clear_screen()
     set_cursor_offset(cursor_offset);
 }
 
+/* --- Scrolling Logic --- */
+
+/**
+ * Check if the cursor has exceeded the screen size.
+ * If so, scroll the text up by one line.
+ */
+void handle_scrolling()
+{
+    // If the cursor is beyond the end of the video memory...
+    if (cursor_offset >= MAX_ROWS * MAX_COLS * 2)
+    {
+        // 1. Move all rows up by one.
+        // Copy from (Row 1 to End) -> to -> (Row 0)
+        int i;
+        for (i = 1; i < MAX_ROWS; i++)
+        {
+            memory_copy(
+                (char *)(get_screen_offset(0, i) + VIDEO_MEMORY),     // Source: Row i
+                (char *)(get_screen_offset(0, i - 1) + VIDEO_MEMORY), // Dest: Row i-1
+                MAX_COLS * 2                                          // Size: One full row
+            );
+        }
+
+        // 2. Clear the last line (Row 24)
+        // We set it to all zeros (or spaces with default color)
+        char *last_line = (char *)(get_screen_offset(0, MAX_ROWS - 1) + VIDEO_MEMORY);
+        for (i = 0; i < MAX_COLS * 2; i++)
+        {
+            last_line[i] = 0;
+        }
+
+        // 3. Reset cursor to the start of the last line
+        cursor_offset -= 2 * MAX_COLS;
+    }
+}
+
 // Print a string and update the hardware cursor position automatically
 void print_string(char *string)
 {
@@ -121,6 +172,9 @@ void print_string(char *string)
             cursor_offset += 2;
         }
 
+        // Check for scrolling after every character print or newline
+        handle_scrolling();
+
         i++;
     }
 
@@ -134,9 +188,19 @@ void main()
 {
     clear_screen();
 
+    // 1. Initial messages
     print_string("Phase 1: Bootloader Fixed.\n");
     print_string("Phase 2: Kernel Loaded Successfully.\n");
     print_string("Phase 3: Newline support is now ACTIVE!\n");
-    print_string("\n"); // Empty line for spacing
-    print_string("Next Step: Scrolling...");
+    print_string("Phase 4: Scrolling test initiated...\n");
+
+    // 2. Fill the screen to trigger scrolling
+    // We print many lines to force the text to go beyond row 24.
+    int i = 0;
+    for (i = 0; i < 21; i++)
+    {
+        print_string("Filling line for testing...\n");
+    }
+
+    print_string("Check");
 }
