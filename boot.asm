@@ -20,6 +20,8 @@
 ;      b) Data Segment: Read/Write, Base=0, Limit=4GB
 ;    - This table is the mandatory "entry ticket" required by the CPU to enable Protected Mode.
 [org 0x7c00]
+    KERNEL_OFFSET equ 0x10000
+
     mov [BOOT_DRIVE], dl
 
     mov bp, 0x8000  ; Set the base pointer of the stack
@@ -39,10 +41,16 @@ load_kernel:
     mov si, msg_load_kernel
     call print_string
 
-    mov bx, 0x1000       ; [destination] address where kernel will get copied
+    mov ax, 0x1000
+    mov es, ax
+    mov bx, 0x0000      
     mov dh, 20           ; [quantity] quantity of sector to be read (1 for now)
     mov dl, [BOOT_DRIVE] ;  restore backuped drive number
     call disk_load       ; -> calls disk load function
+
+    mov ax, 0x0000
+    mov es, ax
+
     ret
 
 ; ------------------------------------------------------------------
@@ -211,7 +219,7 @@ init_pm:
     ; 9. Verification (Print "PM" to screen using video memory)
     call print_string_pm
 
-    call 0x1000                     ; Jump to Kernel
+    call KERNEL_OFFSET                    ; Jump to Kernel
 
     jmp $                           ; Infinite loop in 32-bit mode (OS is running)
 

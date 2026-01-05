@@ -1,4 +1,6 @@
 // kernel.c - Video driver with Hardware Cursor Control via Port I/O
+#include "idt.h"
+#include "ports.h"
 
 #define VIDEO_MEMORY 0xb8000
 #define MAX_ROWS 25
@@ -14,32 +16,6 @@
 // Reading from hardware (port_byte_in) can be unreliable or return garbage data
 // on some emulators/boot states, causing the text to print off-screen.
 int cursor_offset = 0;
-
-/* --- Low-level Port I/O Functions --- */
-
-/**
- * Send 1 byte of data to a specific hardware port.
- * * __asm__ syntax breakdown:
- * - "out %%al, %%dx": Assembly instruction (Output data in AL to port in DX)
- * - "%%al", "%%dx": Double '%' is used to escape and specify literal CPU registers
- * - "a"(data): Binds the C variable 'data' to the 'AL' register
- * - "d"(port): Binds the C variable 'port' to the 'DX' register
- */
-void port_byte_out(unsigned short port, unsigned char data)
-{
-    __asm__("out %%al, %%dx" : : "a"(data), "d"(port));
-}
-
-/**
- * Read 1 byte of data from a specific hardware port.
- * * - "=a"(result): After execution, move the value from 'AL' register to 'result'
- */
-unsigned char port_byte_in(unsigned short port)
-{
-    unsigned char result;
-    __asm__("in %%dx, %%al" : "=a"(result) : "d"(port));
-    return result;
-}
 
 /* --- Helper Function: Memory Copy --- */
 
@@ -326,4 +302,11 @@ void main()
     print_string("Video Memory (0xB8000): ");
     print_hex(VIDEO_MEMORY);
     print_string("\n");
+
+    set_idt();
+
+    print_string("IDT loaded successfully!\n");
+
+    __asm__ volatile("int $0");
+    print_string("This should NOT be printed.\n");
 }

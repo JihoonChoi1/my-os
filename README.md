@@ -71,8 +71,15 @@ If you don't want to type commands one by one, copy and paste this block to rebu
 ```bash
 nasm boot.asm -f bin -o boot.bin && \
 nasm kernel_entry.asm -f elf -o kernel_entry.o && \
+nasm interrupt.asm -f elf -o interrupt.o && \
+\
+x86_64-elf-gcc -ffreestanding -c ports.c -o ports.o -m32 && \
+x86_64-elf-gcc -ffreestanding -c idt.c -o idt.o -m32 && \
+x86_64-elf-gcc -ffreestanding -c isr.c -o isr.o -m32 && \
 x86_64-elf-gcc -ffreestanding -c kernel.c -o kernel.o -m32 && \
-x86_64-elf-ld -o kernel.bin -T kernel.ld kernel_entry.o kernel.o --oformat binary -m elf_i386 && \
+\
+x86_64-elf-ld -o kernel.bin -T kernel.ld kernel_entry.o interrupt.o kernel.o idt.o isr.o ports.o --oformat binary -m elf_i386 && \
+\
 dd if=/dev/zero of=zeros.bin bs=512 count=20 && \
 cat boot.bin kernel.bin zeros.bin > os-image.bin && \
 qemu-system-x86_64 -drive format=raw,file=os-image.bin
