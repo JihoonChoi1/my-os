@@ -56,6 +56,95 @@ void memory_copy(char *source, char *dest, int nbytes)
     }
 }
 
+/* --- String & Conversion Functions --- */
+
+/**
+ * Calculate the length of a string.
+ */
+int strlen(char s[])
+{
+    int i = 0;
+    while (s[i] != '\0')
+        ++i;
+    return i;
+}
+
+/**
+ * Reverse a string in-place (e.g., "321" -> "123").
+ * Used because the integer conversion algorithm generates digits backwards.
+ */
+void reverse(char s[])
+{
+    int c, i, j;
+    for (i = 0, j = strlen(s) - 1; i < j; i++, j--)
+    {
+        c = s[i];
+        s[i] = s[j];
+        s[j] = c;
+    }
+}
+
+/**
+ * Convert a generic integer (Base 10) to a string.
+ */
+void int_to_string(int n, char str[])
+{
+    int i = 0;
+    int sign = n;
+    if (sign < 0)
+        n = -n;
+
+    do
+    {
+        str[i++] = n % 10 + '0'; // Extract last digit
+    } while ((n /= 10) > 0); // Remove last digit
+
+    if (sign < 0)
+        str[i++] = '-';
+
+    str[i] = '\0';
+    reverse(str);
+}
+
+/**
+ * Convert an integer to a Hexadecimal string (Base 16).
+ * Useful for debugging memory addresses.
+ */
+void hex_to_string(int n, char str[])
+{
+    // Initialize with "0x"
+    str[0] = '0';
+    str[1] = 'x';
+
+    char *hex_codes = "0123456789ABCDEF";
+    int i = 2; // Start writing after "0x"
+
+    if (n == 0)
+    {
+        str[i++] = '0';
+        str[i] = '\0';
+        return;
+    }
+
+    // Use a temp buffer because we process digits backwards
+    char temp[20];
+    int k = 0;
+
+    // Extract hex digits
+    do
+    {
+        temp[k++] = hex_codes[n % 16];
+        n /= 16;
+    } while (n > 0);
+
+    // Reverse and append to str
+    for (int j = k - 1; j >= 0; j--)
+    {
+        str[i++] = temp[j];
+    }
+    str[i] = '\0';
+}
+
 /* --- Cursor Control Functions --- */
 
 /**
@@ -182,6 +271,28 @@ void print_string(char *string)
     set_cursor_offset(cursor_offset);
 }
 
+/* --- Printing Wrappers --- */
+
+/**
+ * Print a Decimal number (Base 10)
+ */
+void print_dec(int n)
+{
+    char str[50];
+    int_to_string(n, str);
+    print_string(str);
+}
+
+/**
+ * Print a Hexadecimal number (Base 16)
+ */
+void print_hex(int n)
+{
+    char str[50];
+    hex_to_string(n, str);
+    print_string(str);
+}
+
 /* --- Main Entry Point --- */
 
 void main()
@@ -202,5 +313,17 @@ void main()
         print_string("Filling line for testing...\n");
     }
 
-    print_string("Check");
+    print_string("\nCheck\n");
+
+    print_string("Decimal Test (100): ");
+    print_dec(100);
+    print_string("\n");
+
+    print_string("Hex Test (0x1000): ");
+    print_hex(0x1000);
+    print_string("\n");
+
+    print_string("Video Memory (0xB8000): ");
+    print_hex(VIDEO_MEMORY);
+    print_string("\n");
 }
