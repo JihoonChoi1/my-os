@@ -303,8 +303,10 @@ void main()
     print_hex(VIDEO_MEMORY);
     print_string("\n");
 
-    set_idt();
+    pic_remap();
+    print_string("Phase 4: PIC Remapped (IRQ 0-15 -> INT 32-47).\n");
 
+    set_idt();
     print_string("IDT loaded successfully!\n");
 
     __asm__ volatile("int $0");
