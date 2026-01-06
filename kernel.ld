@@ -4,7 +4,7 @@ ENTRY(_start)
 SECTIONS
 {
     /* Kernel start address (Base address) */
-    . = 0x10000;
+    . = 0x100000;
 
     /* .text: Executable code section */
     .text : {

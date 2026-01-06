@@ -27,8 +27,7 @@ run: os-image.bin
 # OS Image Creation (Bootloader + Kernel + Zero Padding)
 # --------------------------------------------------------
 os-image.bin: boot.bin kernel.bin
-	dd if=/dev/zero of=zeros.bin bs=512 count=20
-	cat boot.bin kernel.bin zeros.bin > os-image.bin
+	cat boot.bin kernel.bin > os-image.bin
 
 # --------------------------------------------------------
 # Kernel Binary Creation (Linking)
@@ -36,6 +35,15 @@ os-image.bin: boot.bin kernel.bin
 # kernel.bin requires both assembly objects and C objects
 kernel.bin: kernel_entry.o interrupt.o ${OBJ_FILES}
 	${LD} -o $@ $^ ${LDFLAGS}
+
+# --------------------------------------------------------
+# Bootloader Compilation (Requires kernel.bin size)
+# --------------------------------------------------------
+# 1. Get kernel.bin size in bytes
+# 2. Calculate sectors: (size + 511) / 512
+# 3. Pass as KERNEL_SECTORS to nasm
+boot.bin: boot.asm kernel.bin
+	nasm $< -f bin -o $@ -D KERNEL_SECTORS=$$(($$(stat -f%z kernel.bin) / 512 + 1))
 
 # --------------------------------------------------------
 # Individual File Compilation Rules (Pattern Matching)
@@ -49,11 +57,7 @@ kernel.bin: kernel_entry.o interrupt.o ${OBJ_FILES}
 %.o: %.asm
 	nasm $< -f elf -o $@
 
-# Handle bootloader separately (bin format)
-boot.bin: boot.asm
-	nasm $< -f bin -o $@
 
-# --------------------------------------------------------
 # Cleanup (make clean)
 # --------------------------------------------------------
 clean:

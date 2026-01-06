@@ -21,6 +21,7 @@
 ;    - This table is the mandatory "entry ticket" required by the CPU to enable Protected Mode.
 [org 0x7c00]
     KERNEL_OFFSET equ 0x10000
+    KERNEL_ADDR_1MB equ 0x100000
 
     mov [BOOT_DRIVE], dl
 
@@ -44,7 +45,7 @@ load_kernel:
     mov ax, 0x1000
     mov es, ax
     mov bx, 0x0000      
-    mov dh, 20           ; [quantity] quantity of sector to be read (1 for now)
+    mov dh, KERNEL_SECTORS   ; [quantity] dynamic sector count from Makefile
     mov dl, [BOOT_DRIVE] ;  restore backuped drive number
     call disk_load       ; -> calls disk load function
 
@@ -184,6 +185,11 @@ DATA_SEG equ gdt_data - gdt_start
 [bits 16]
 switch_to_pm:
     cli                             ; 1. Disable interrupts (Critical!)
+
+    ; Enable A20 Line (Fast A20 Gate)
+    in al, 0x92
+    or al, 2
+    out 0x92, al
     lgdt [gdt_descriptor]           ; 2. Load the GDT descriptor
 
     mov eax, cr0                    ; 3. Read CR0 register (Control Register 0)
@@ -219,7 +225,15 @@ init_pm:
     ; 9. Verification (Print "PM" to screen using video memory)
     call print_string_pm
 
-    call KERNEL_OFFSET                    ; Jump to Kernel
+    call print_string_pm
+
+    ; Copy kernel from KERNEL_OFFSET (0x10000) to KERNEL_ADDR_1MB (0x100000)
+    mov esi, KERNEL_OFFSET
+    mov edi, KERNEL_ADDR_1MB
+    mov ecx, (KERNEL_SECTORS * 128) ; 512 bytes / 4 bytes = 128 dwords per sector
+    rep movsd
+
+    call KERNEL_ADDR_1MB   ; Jump to Kernel at 1MB
 
     jmp $                           ; Infinite loop in 32-bit mode (OS is running)
 

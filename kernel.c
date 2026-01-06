@@ -145,6 +145,8 @@ void set_cursor_offset(int offset)
     port_byte_out(REG_SCREEN_DATA, (unsigned char)(offset & 0xff));
 }
 
+
+
 /* --- High-level Printing Functions --- */
 
 // Write a character and its color attribute to video memory
@@ -201,11 +203,11 @@ void handle_scrolling()
         }
 
         // 2. Clear the last line (Row 24)
-        // We set it to all zeros (or spaces with default color)
         char *last_line = (char *)(get_screen_offset(0, MAX_ROWS - 1) + VIDEO_MEMORY);
-        for (i = 0; i < MAX_COLS * 2; i++)
+        for (i = 0; i < MAX_COLS * 2; i += 2)
         {
-            last_line[i] = 0;
+            last_line[i] = ' ';      // Character
+            last_line[i + 1] = 0x0f; // Attribute (White on Black)
         }
 
         // 3. Reset cursor to the start of the last line
