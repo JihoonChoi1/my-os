@@ -1,7 +1,7 @@
 # --------------------------------------------------------
 # Variable Definitions (Modify here when adding new files)
 # --------------------------------------------------------
-C_SOURCES = $(wildcard *.c)
+C_SOURCES = $(filter-out mkfs.c, $(wildcard *.c))
 HEADERS = $(wildcard *.h)
 
 # Automatically generate a list of .o files from .c files
@@ -20,14 +20,20 @@ LDFLAGS = --oformat binary -m elf_i386 -T kernel.ld
 # --------------------------------------------------------
 # Main Target (Executed when 'make run' is called)
 # --------------------------------------------------------
-run: os-image.bin
-	qemu-system-x86_64 -drive format=raw,file=os-image.bin
+run: disk.img
+	qemu-system-x86_64 -drive format=raw,file=disk.img
 
 # --------------------------------------------------------
 # OS Image Creation (Bootloader + Kernel + Zero Padding)
 # --------------------------------------------------------
-os-image.bin: boot.bin kernel.bin
-	cat boot.bin kernel.bin > os-image.bin
+# OS Image Generation (Using mkfs tool)
+# --------------------------------------------------------
+disk.img: mkfs boot.bin loader.bin kernel.bin
+	./mkfs
+
+# Compile mkfs tool (Host)
+mkfs: mkfs.c fs.h
+	gcc -o mkfs mkfs.c
 
 # --------------------------------------------------------
 # Kernel Binary Creation (Linking)
@@ -37,13 +43,15 @@ kernel.bin: kernel_entry.o interrupt.o ${OBJ_FILES}
 	${LD} -o $@ $^ ${LDFLAGS}
 
 # --------------------------------------------------------
-# Bootloader Compilation (Requires kernel.bin size)
+# Bootloader Compilation
 # --------------------------------------------------------
-# 1. Get kernel.bin size in bytes
-# 2. Calculate sectors: (size + 511) / 512
-# 3. Pass as KERNEL_SECTORS to nasm
-boot.bin: boot.asm kernel.bin
-	nasm $< -f bin -o $@ -D KERNEL_SECTORS=$$(($$(stat -f%z kernel.bin) / 512 + 1))
+# Stage 1: boot.bin (MBR)
+boot.bin: boot.asm
+	nasm $< -f bin -o $@
+
+# Stage 2: loader.bin
+loader.bin: loader.asm
+	nasm $< -f bin -o $@
 
 # --------------------------------------------------------
 # Individual File Compilation Rules (Pattern Matching)
@@ -61,4 +69,4 @@ boot.bin: boot.asm kernel.bin
 # Cleanup (make clean)
 # --------------------------------------------------------
 clean:
-	rm -f *.bin *.o
+	rm -f *.bin *.o mkfs disk.img
