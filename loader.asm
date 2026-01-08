@@ -177,6 +177,54 @@ start:
     call print_string
 
     ; -----------------------------------------------
+    ; Memory Detection (BIOS E820)
+    ; -----------------------------------------------
+    mov si, msg_detect_mem
+    call print_string
+
+    mov di, 0x8004          ; Store map entries starting at 0x8004
+    xor ebx, ebx            ; EBX must be 0 to start
+    xor bp, bp              ; Keep entry count in BP
+    mov edx, 0x0534D4150    ; Place "SMAP" into edx
+    mov eax, 0xe820
+    mov [es:di + 20], dword 1 ; Force a valid ACPI 3.X entry
+    mov ecx, 24             ; Ask for 24 bytes
+    int 0x15
+    jc .e820_failed         ; Carry set on first call means unsupported
+
+    mov edx, 0x0534D4150    ; Some BIOS trash EDX
+    cmp eax, edx            ; on success, eax must be 'SMAP'
+    jne .e820_failed
+    test ebx, ebx           ; If EBX=0, list is empty (useless)
+    je .e820_failed
+    jmp .e820_entry_loop
+
+.e820_entry_loop:
+    inc bp                  ; Got a valid entry
+    add di, 24              ; Move to next entry slot
+    
+    test ebx, ebx           ; If EBX=0, we are done
+    je .e820_done
+
+    mov eax, 0xe820
+    mov [es:di + 20], dword 1
+    mov ecx, 24
+    int 0x15
+    jc .e820_done           ; Carry set means end of list usually
+    mov edx, 0x0534D4150    ; Repair EDX
+    jmp .e820_entry_loop
+
+.e820_failed:
+    mov si, msg_mem_err
+    call print_string
+    jmp $
+
+.e820_done:
+    mov [0x8000], bp        ; Store the entry count at 0x8000
+    mov si, msg_mem_done
+    call print_string
+
+    ; -----------------------------------------------
     ; Switch to Protected Mode & Jump
     ; -----------------------------------------------
     
@@ -276,6 +324,9 @@ msg_load_done      db 'All Kernel Blocks Loaded! Jump to PM...', 0x0d, 0x0a, 0
 msg_copy_done      db 'First Block Copied to 1MB!', 0x0d, 0x0a, 0
 msg_disk_err       db 'Disk Error!', 0x0d, 0x0a, 0
 msg_magic_err      db 'Invalid Magic!', 0x0d, 0x0a, 0
+msg_detect_mem     db 'Detecting Memory (E820)...', 0x0d, 0x0a, 0
+msg_mem_done       db 'Memory Map Stored at 0x8000.', 0x0d, 0x0a, 0
+msg_mem_err        db 'Memory Detection Failed!', 0x0d, 0x0a, 0
 
 BOOT_DRIVE db 0
 inode_table_lba dd 0
