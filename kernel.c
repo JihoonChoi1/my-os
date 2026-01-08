@@ -1,6 +1,10 @@
 // kernel.c - Video driver with Hardware Cursor Control via Port I/O
 #include "idt.h"
 #include "ports.h"
+#include "ports.h"
+#include "shell.h"
+#include "timer.h"
+#include "process.h"
 
 #define VIDEO_MEMORY 0xb8000
 #define MAX_ROWS 25
@@ -249,6 +253,23 @@ void print_string(char *string)
     set_cursor_offset(cursor_offset);
 }
 
+// Global function to handle backspace visually
+void print_backspace() {
+    // 1. Check if we are at the beginning of the screen (0)
+    // In a real shell, we would also check if we are overwriting the prompt.
+    // simpler check: don't delete if offset is 0.
+    if (cursor_offset > 0) {
+        // 2. Move cursor back by one character (2 bytes)
+        cursor_offset -= 2;
+        
+        // 3. Write a space at the new position to "erase" the character
+        set_char_at_video_memory(' ', cursor_offset);
+        
+        // 4. Update hardware cursor
+        set_cursor_offset(cursor_offset);
+    }
+}
+
 /* --- Printing Wrappers --- */
 
 /**
@@ -270,6 +291,10 @@ void print_hex(int n)
     hex_to_string(n, str);
     print_string(str);
 }
+
+// Test Tasks defined in tasks.c
+extern void task_a();
+extern void task_b();
 
 /* --- Main Entry Point --- */
 
@@ -310,7 +335,30 @@ void main()
 
     set_idt();
     print_string("IDT loaded successfully!\n");
+    
+    // Initialize Timer (50 Hz)
+    init_timer(50);
 
-    __asm__ volatile("int $0");
-    print_string("This should NOT be printed.\n");
+    // Enable Interrupts
+    // Enable Interrupts
+    // Initialize Multitasking
+    init_multitasking();
+    
+    print_string("Address of task_a: ");
+    print_hex((uint32_t)&task_a);
+    print_string("\n");
+
+    create_task(&task_a);
+    create_task(&task_b);
+    
+    // Enable Interrupts
+    __asm__ volatile("sti");
+    
+    // Initialize Shell
+    shell_init();
+
+    while(1) {
+        // Wait for interrupt (Saves CPU power)
+        __asm__ volatile("hlt");
+    }
 }

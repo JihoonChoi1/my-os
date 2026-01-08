@@ -39,6 +39,7 @@ mkfs: mkfs.c fs.h
 # Kernel Binary Creation (Linking)
 # --------------------------------------------------------
 # kernel.bin requires both assembly objects and C objects
+# kernel.bin requires both assembly objects and C objects
 kernel.bin: kernel_entry.o interrupt.o ${OBJ_FILES}
 	${LD} -o $@ $^ ${LDFLAGS}
 

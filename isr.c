@@ -10,8 +10,9 @@
 #define PIC2_COMMAND 0xA0
 #define PIC2_DATA 0xA1
 
-// External declaration for the printing function (defined in kernel.c)
+// External declaration for the printing functions (defined in kernel.c)
 extern void print_string(char *str);
+extern void print_hex(int n);
 
 // ----------------------------------------------------------------
 // Function to initialize the PIC chips and remap interrupts to 32-47
@@ -39,14 +40,14 @@ void pic_remap()
   port_byte_out(PIC1_DATA, 0x01);
   port_byte_out(PIC2_DATA, 0x01);
 
-  // Set Mask: Enable all interrupts (0x00)
-  // "Allow all hardware signals"
-  // Later, we can enable only the keyboard and disable others here.
-  port_byte_out(PIC1_DATA, 0x00);
-  port_byte_out(PIC2_DATA, 0x00);
+  // Set Mask: 
+  // Master PIC: Enable IRQ 0 (Timer) & IRQ 1 (Keyboard) -> 1111 1100 = 0xFC
+  // Slave PIC: Disable all -> 1111 1111 = 0xFF
+  port_byte_out(PIC1_DATA, 0xFC);
+  port_byte_out(PIC2_DATA, 0xFF);
 }
 
-// Handler function for Interrupt 0 (Division By Zero)
+// Handler for Interrupt 0 (Division By Zero)
 void isr0_handler()
 {
   print_string("\n[!] EXCEPTION: Division By Zero!\n");
@@ -56,3 +57,7 @@ void isr0_handler()
   while (1)
     ;
 }
+
+// Handler for IRQ 1 (Keyboard)
+// Moved to keyboard.c
+// void keyboard_handler() { ... }

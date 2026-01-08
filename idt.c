@@ -2,6 +2,8 @@
 #include "idt.h"
 
 extern void isr0();
+extern void irq0();
+extern void irq1(); // Keyboard IRQ Wrapper
 
 // 1. Define the actual variables here (Allocates memory)
 idt_gate_t idt[IDT_ENTRIES];
@@ -36,6 +38,11 @@ void set_idt()
 
   // Register the handler for Interrupt 0 (Division By Zero)
   set_idt_gate(0, (uint32_t)isr0);
+  
+  // Register the handler for Keyboard    // IRQ 0 (Timer) -> INT 32
+    set_idt_gate(32, (uint32_t)irq0);
+    // IRQ 1 (Keyboard) -> INT 33
+    set_idt_gate(33, (uint32_t)irq1);
 
   // Execute "lidt" instruction (Load IDT)
   // Using inline assembly to execute assembly instructions within C code.
