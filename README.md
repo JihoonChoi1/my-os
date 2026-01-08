@@ -1,15 +1,29 @@
-# My First OS Project
+# My Custom OS
 
-This project is a minimal 32-bit operating system built from scratch.
-The bootloader is written in Assembly (NASM), and the kernel is written in C.
+A 32-bit Protected Mode Operating System built from scratch in C and Assembly.
 
-## 🛠 Prerequisites
+## 🌟 Key Features
 
-You need the following tools to build and run this project.
+### �️ Kernel & Core
+- **32-bit Protected Mode**: Boots into full 32-bit mode with GDT enabled.
+- **Preemptive Multitasking**: Round-Robin Scheduler with Context Switching.
+- **Physical Memory Manager (PMM)**: Detection via BIOS E820 (In Progress).
+- **Interrupt Handling**: Custom IDT & ISR for Hardware Interrupts (timer, keyboard).
+- **System Timer**: PIT (8253) configured at 50Hz.
 
-### For macOS Users
+### � File System
+- **SimpleFS**: Custom Flat File System.
+- **mkfs Tool**: Custom tool to generate disk images with Bootloader, Kernel, and Files.
+- **Multi-Stage Bootloader**:
+  - **Stage 1 (MBR)**: Loads Stage 2 from reserved path.
+  - **Stage 2 (Loader)**: Parses SimpleFS to find and load `kernel.bin` to 1MB.
 
-Install the necessary toolchain using Homebrew:
+### 🐚 Shell & Interaction
+- **Interactive Shell**: Command-line interface with input buffering.
+- **Built-in Commands**: `help`, `clear`, `ls`.
+- **Keyboard Driver**: Full PS/2 Keyboard support with Scancode mapping.
+
+## 🛠 Prerequisites (macOS)
 
 ```bash
 brew install nasm
@@ -18,69 +32,43 @@ brew install x86_64-elf-gcc
 brew install x86_64-elf-binutils
 ```
 
-## 🚀 How to Build & Run
+### For Windows Users (Recommended: WSL2)
+Use **WSL (Windows Subsystem for Linux)** (Ubuntu).
 
-Run the following commands in your terminal in order.
-
-### 1. Build the Bootloader
-
+1. Install dependencies:
 ```bash
-nasm boot.asm -f bin -o boot.bin
+sudo apt update
+sudo apt install nasm qemu-system-x86 build-essential bison flex libgmp3-dev libmpc-dev libmpfr-dev texinfo
 ```
 
-### 2. Build the Kernel Entry Point
+2. **Important**: You MUST use the `x86_64-elf-gcc` cross-compiler.
+   - Standard `sudo apt install gcc` will NOT work correctly because it targets Linux, not a bare-metal OS.
+   - Please follow the [OSDev Wiki - GCC Cross-Compiler](https://wiki.osdev.org/GCC_Cross-Compiler) guide to build the toolchain.
+   - Alternatively, you can search for pre-built binaries (e.g., `brew` on Linux), but building from source is the gold standard.
+
+## 🚀 Build & Run
+
+The project uses a comprehensive `Makefile` to handle building the disk image.
+
+### One-Command Run
+To compile everything (Bootloader, Kernel, FS) and launch QEMU:
 
 ```bash
-nasm kernel_entry.asm -f elf -o kernel_entry.o
+make run
 ```
 
-### 3. Compile the C Kernel
-
+### Clean Build Artifacts
 ```bash
-x86_64-elf-gcc -ffreestanding -c kernel.c -o kernel.o -m32
+make clean
 ```
 
-### 4. Link the Kernel (Create Kernel Image)
+## 📂 Project Structure
 
-_Note: macOS users must use `x86_64-elf-ld`._
-
-```bash
-x86_64-elf-ld -o kernel.bin -Ttext 0x1000 kernel_entry.o kernel.o --oformat binary -m elf_i386
-```
-
-### 5. Create OS Image
-
-Combine the bootloader and the kernel into a single binary.
-
-```bash
-cat boot.bin kernel.bin > os-image.bin
-```
-
-### 6. Run (QEMU)
-
-```bash
-qemu-system-x86_64 -drive format=raw,file=os-image.bin
-```
+- **boot/**: Assembly bootloaders (`boot.asm`, `loader.asm`).
+- **kernel/**: C Kernel source (`kernel.c`, `process.c`, `timer.c`, etc.).
+- **drivers/**: Hardware drivers (`keyboard.c`, `ports.c`).
+- **fs/**: File System tools (`mkfs.c`).
+- **cpu/**: Interrupt handling (`idt.c`, `interrupt.asm`).
 
 ---
-
-## ⚡️ Quick Run (One-Liner)
-
-If you don't want to type commands one by one, copy and paste this block to rebuild and run everything at once:
-
-```bash
-nasm boot.asm -f bin -o boot.bin && \
-nasm kernel_entry.asm -f elf -o kernel_entry.o && \
-nasm interrupt.asm -f elf -o interrupt.o && \
-\
-x86_64-elf-gcc -ffreestanding -c ports.c -o ports.o -m32 && \
-x86_64-elf-gcc -ffreestanding -c idt.c -o idt.o -m32 && \
-x86_64-elf-gcc -ffreestanding -c isr.c -o isr.o -m32 && \
-x86_64-elf-gcc -ffreestanding -c kernel.c -o kernel.o -m32 && \
-\
-x86_64-elf-ld -o kernel.bin -T kernel.ld kernel_entry.o interrupt.o kernel.o idt.o isr.o ports.o --oformat binary -m elf_i386 && \
-\
-dd if=/dev/zero of=zeros.bin bs=512 count=20 && \
-cat boot.bin kernel.bin zeros.bin > os-image.bin && \
-qemu-system-x86_64 -drive format=raw,file=os-image.bin
-```
+Start hacking the kernel by editing `kernel.c`! 🚀
