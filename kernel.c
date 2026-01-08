@@ -343,11 +343,6 @@ void main()
     // Enable Interrupts
     // Initialize Multitasking
     init_multitasking();
-    
-    print_string("Address of task_a: ");
-    print_hex((uint32_t)&task_a);
-    print_string("\n");
-
     create_task(&task_a);
     create_task(&task_b);
     
