@@ -5,6 +5,9 @@
 #include "shell.h"
 #include "timer.h"
 #include "process.h"
+#include "pmm.h"
+
+extern uint32_t _kernel_end;
 
 #define VIDEO_MEMORY 0xb8000
 #define MAX_ROWS 25
@@ -341,6 +344,16 @@ void main()
 
     // Enable Interrupts
     // Enable Interrupts
+    // Initialize Multitasking
+    // Initialize PMM
+    pmm_init((uint32_t)&_kernel_end);
+
+    // Verify PMM
+    print_string("--- PMM TEST ---\n");
+    uint32_t p1 = pmm_alloc_block();
+    print_string("Allocated: 0x"); print_hex(p1); print_string("\n");
+    pmm_free_block(p1);
+    
     // Initialize Multitasking
     init_multitasking();
     create_task(&task_a);

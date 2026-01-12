@@ -26,4 +26,7 @@ SECTIONS
     .bss : {
         *(.bss)
     }
+
+    /* Define a symbol for the end of the kernel */
+    _kernel_end = .;
 }

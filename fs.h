@@ -48,8 +48,8 @@ typedef struct {
     uint8_t  used;                    // 1 if this inode is in use, 0 if free
     char     filename[FILENAME_MAX_LEN]; // Name of the file (e.g., "kernel.bin")
     uint32_t size;                    // Size of the file in bytes
-    uint32_t blocks[12];              // Direct pointers to data blocks
-                                      // (Max file size = 12 * 512 = 6KB for now)
+    uint32_t blocks[64];              // Direct pointers to data blocks
+                                      // (Max file size = 64 * 512 = 32KB)
                                       // If we need bigger files, we can increase this
                                       // or use indirect pointers.
     uint8_t  padding[3];              // To align structure if needed (Total ~60 bytes)

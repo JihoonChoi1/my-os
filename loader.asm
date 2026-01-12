@@ -108,7 +108,7 @@ start:
     mov edi, 0x100000   ; Destination Address (Starting at 1MB)
 
 .block_loop:
-    cmp cx, 12          ; Max 12 blocks
+    cmp cx, 64          ; Max 64 blocks
     jge .copy_finished
 
     ; Get Block Number from Inode

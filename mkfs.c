@@ -125,10 +125,10 @@ int main(int argc, char *argv[])
         // Calculate and Assign Data Blocks
         // Assuming kernel fits in contiguous blocks starting at data_block_start
         uint32_t needed_blocks = (kernel_size + PROJ_BLOCK_SIZE - 1) / PROJ_BLOCK_SIZE;
-        if (needed_blocks > 12)
+        if (needed_blocks > 64)
         {
-            printf("WARNING: Kernel too big (%d blocks) for direct blocks! Only first 12 blocks will be indexed.\n", needed_blocks);
-            needed_blocks = 12; // Truncate for now as per simple design
+            printf("WARNING: Kernel too big (%d blocks) for direct blocks! Only first 64 blocks will be indexed.\n", needed_blocks);
+            needed_blocks = 64; // Truncate for now as per simple design
         }
 
         for (uint32_t i = 0; i < needed_blocks; i++)
