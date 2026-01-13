@@ -3,10 +3,12 @@
 [bits 32]
 
 global isr0             ; Make 'isr0' accessible from C code
+global isr14            ; Make 'isr14' accessible (Page Fault)
 global irq0             ; Make 'irq0' accessible (Timer IRQ)
 global irq1             ; Make 'irq1' accessible (Keyboard IRQ)
 
 extern isr0_handler     ; C Handler for Int 0
+extern page_fault_handler ; C Handler for Int 14 (Page Fault)
 extern timer_handler    ; C Handler for IRQ 0 (Timer)
 extern keyboard_handler ; C Handler for IRQ 1 (Keyboard)
 
@@ -17,6 +19,16 @@ isr0:
     pusha
     call isr0_handler
     popa
+    iret
+
+; ---------------------------------------------
+; Handler for Interrupt 14 (Page Fault)
+; ---------------------------------------------
+isr14:
+    pusha               ; Save registers
+    call page_fault_handler
+    popa                ; Restore registers
+    add esp, 4          ; Pop Error Code (Pushed by CPU for Int 14)
     iret
 
 ; ---------------------------------------------

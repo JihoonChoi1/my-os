@@ -1,7 +1,7 @@
 #ifndef PROCESS_H
 #define PROCESS_H
 
-#include "idt.h" // uint32_t, uint8_t definitions
+#include <stdint.h>
 
 typedef struct {
     uint32_t *esp;       // Stack Pointer (Saved when switching out)

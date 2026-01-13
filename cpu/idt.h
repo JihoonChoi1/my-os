@@ -4,12 +4,8 @@
 
 // -------------------------------------------------------------------------
 // Replacement definitions for standard library (stdint.h)
-// Since we don't have the standard library, we manually define fixed-width types
-// to ensure exact sizes (1 byte, 2 bytes, 4 bytes).
 // -------------------------------------------------------------------------
-typedef unsigned char uint8_t;   // 1 byte (8 bits)
-typedef unsigned short uint16_t; // 2 bytes (16 bits)
-typedef unsigned int uint32_t;   // 4 bytes (32 bits)
+#include <stdint.h>
 
 // -------------------------------------------------------------------------
 // IDT Gate Structure (Represents a single interrupt handler)

@@ -1,7 +1,7 @@
 #ifndef PMM_H
 #define PMM_H
 
-#include "idt.h" // For uint32_t, etc.
+#include <stdint.h>
 
 // 4KB Block Size
 #define PMM_BLOCK_SIZE 4096

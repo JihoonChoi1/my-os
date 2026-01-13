@@ -58,6 +58,23 @@ void isr0_handler()
     ;
 }
 
+// Handler for Interrupt 14 (Page Fault)
+void page_fault_handler()
+{
+    uint32_t faulting_address;
+    // Read CR2 register to get the address that caused the fault
+    __asm__ volatile("mov %%cr2, %0" : "=r"(faulting_address));
+
+    print_string("\n[!] EXCEPTION: Page Fault!\n");
+    print_string("Faulting Address: ");
+    print_hex(faulting_address);
+    print_string("\nSystem Halted.\n");
+
+    while (1) {
+        __asm__ volatile("hlt");
+    }
+}
+
 // Handler for IRQ 1 (Keyboard)
 // Moved to keyboard.c
 // void keyboard_handler() { ... }

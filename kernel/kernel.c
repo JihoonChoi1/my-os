@@ -6,6 +6,7 @@
 #include "timer.h"
 #include "process.h"
 #include "pmm.h"
+#include "vmm.h"
 
 extern uint32_t _kernel_end;
 
@@ -93,7 +94,7 @@ void int_to_string(int n, char str[])
  * Convert an integer to a Hexadecimal string (Base 16).
  * Useful for debugging memory addresses.
  */
-void hex_to_string(int n, char str[])
+void hex_to_string(uint32_t n, char str[])
 {
     // Initialize with "0x"
     str[0] = '0';
@@ -353,6 +354,17 @@ void main()
     uint32_t p1 = pmm_alloc_block();
     print_string("Allocated: 0x"); print_hex(p1); print_string("\n");
     pmm_free_block(p1);
+
+    // Initialize Virtual Memory (Identity Map)
+    vmm_init();
+    
+    // Enable Paging
+    vmm_enable_paging();
+
+    // TEST: Trigger Page Fault!
+    // print_string("TEST: Triggering Page Fault at 0xA0000000...\n");
+    // uint32_t *ptr = (uint32_t*)0xA0000000;
+    // uint32_t do_page_fault = *ptr;
     
     // Initialize Multitasking
     init_multitasking();

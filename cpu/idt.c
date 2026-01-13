@@ -2,6 +2,7 @@
 #include "idt.h"
 
 extern void isr0();
+extern void isr14(); // Page Fault
 extern void irq0();
 extern void irq1(); // Keyboard IRQ Wrapper
 
@@ -38,6 +39,9 @@ void set_idt()
 
   // Register the handler for Interrupt 0 (Division By Zero)
   set_idt_gate(0, (uint32_t)isr0);
+  
+  // Register the handler for Interrupt 14 (Page Fault)
+  set_idt_gate(14, (uint32_t)isr14);
   
   // Register the handler for Keyboard    // IRQ 0 (Timer) -> INT 32
     set_idt_gate(32, (uint32_t)irq0);
