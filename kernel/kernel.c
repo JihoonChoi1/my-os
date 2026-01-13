@@ -7,6 +7,7 @@
 #include "process.h"
 #include "pmm.h"
 #include "vmm.h"
+#include "kheap.h"
 
 extern uint32_t _kernel_end;
 
@@ -361,11 +362,23 @@ void main()
     // Enable Paging
     vmm_enable_paging();
 
-    // TEST: Trigger Page Fault!
-    // print_string("TEST: Triggering Page Fault at 0xA0000000...\n");
-    // uint32_t *ptr = (uint32_t*)0xA0000000;
-    // uint32_t do_page_fault = *ptr;
-    
+    // Initialize Heap
+    kheap_init();
+
+    // TEST: Dynamic Allocation
+    print_string("TEST: kmalloc(10)\n");
+    char* str = (char*)kmalloc(10);
+    if (!str) {
+        print_string("Malloc failed!\n");
+    } else {
+        str[0] = 'H'; str[1] = 'e'; str[2] = 'y'; str[3] = '\0';
+        print_string("Allocated String: ");
+        print_string(str);
+        print_string("\n");
+        kfree(str);
+        print_string("Freed memory.\n");
+    }
+
     // Initialize Multitasking
     init_multitasking();
     create_task(&task_a);
