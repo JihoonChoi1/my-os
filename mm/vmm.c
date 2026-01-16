@@ -38,21 +38,19 @@ void vmm_init() {
     for (int i = 0; i < PAGES_PER_TABLE; i++) {
         uint32_t frame = i * PAGE_SIZE; // 0, 4096, 8192 ...
         
-        // Entry = Frame Address | Present | Writable | Supervisor (Kernel Only)
-        // User mode bit (I86_PTE_USER) is NOT set, so user code cannot access this.
-        first_table->m_entries[i] = frame | I86_PTE_PRESENT | I86_PTE_WRITABLE;
+        // Entry = Frame Address | Present | Writable | User (TEMPORARY: Allow Ring 3 to Execute Kernel Code)
+        // Since our test code (switch_to_user_mode) is inside the kernel (0-4MB),
+        // we must allow User Mode to read/execute pages in this region.
+        first_table->m_entries[i] = frame | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
     }
 
     // Register the Page Table in the Page Directory
-    // Index 0 in Directory corresponds to Virtual Address 0x00000000 - 0x00400000
-    kernel_directory->m_entries[0] = (uint32_t)first_table | I86_PTE_PRESENT | I86_PTE_WRITABLE;
+    // Index 0 (0-4MB) -> User Accessible
+    kernel_directory->m_entries[0] = (uint32_t)first_table | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
 
-    // --- HEAP MAPPING ---
+    // --- HEAP MAPPING (8MB - 12MB) ---
     // We want the heap to start at 10MB (0xA00000).
     // 10MB falls into the range 8MB-12MB, which is Directory Index 2.
-    // Index 0: 0-4MB
-    // Index 1: 4-8MB
-    // Index 2: 8-12MB
     
     // Allocate a Page Table for the Heap (covers 8MB-12MB)
     page_table* heap_table = (page_table*)pmm_alloc_block();
@@ -65,10 +63,9 @@ void vmm_init() {
     // Physical Addresses: 0x800000 to 0xBFFFFF
     for (int i = 0; i < PAGES_PER_TABLE; i++) {
         // Base address for this table is 8MB (2 * 4MB)
-        // Offset i * 4KB
         uint32_t frame = (2 * 1024 * PAGE_SIZE) + (i * PAGE_SIZE);
         
-        // Map it!
+        // Map it! Kernel Only (Supervisor)
         heap_table->m_entries[i] = frame | I86_PTE_PRESENT | I86_PTE_WRITABLE;
     }
 
@@ -77,7 +74,31 @@ void vmm_init() {
 
     print_string("VMM: Mapped 8-12MB for Heap.\n");
 
-    print_string("VMM: Identity Mapped 0-4MB.\n");
+    // --- USER STACK MAPPING (15MB - 16MB) ---
+    // We will use Directory Index 3 (12MB - 16MB)
+    // 0xF00000 is at 15MB.
+    // 15MB is inside the 4MB chunk of Index 3. (Index 3 covers 12MB to 16MB).
+    
+    page_table* user_stack_table = (page_table*)pmm_alloc_block();
+    if (!user_stack_table) {
+         print_string("VMM Error: Failed to allocate User Stack Table!\n");
+         return;
+    }
+    
+    // 0xF00000 corresponds to the 768th entry in the Page Table of Index 3. 
+    // ((15 * 1024 * 1024) % (4 * 1024 * 1024)) / 4096 = (3MB offset) / 4KB = 3072KB / 4KB = 768.
+    // Frame: 0xF00000.
+    
+    int user_stack_idx = 768; // 3MB offset into the 4MB table
+    uint32_t user_stack_frame = 0xF00000;
+    
+    user_stack_table->m_entries[user_stack_idx] = user_stack_frame | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
+    
+    // Register in Directory Index 3 (12-16MB)
+    kernel_directory->m_entries[3] = (uint32_t)user_stack_table | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
+    // Note: PDE must be USER accessible too!
+
+    print_string("VMM: Mapped User Stack at 0xF00000.\n");
 }
 
 void vmm_enable_paging() {

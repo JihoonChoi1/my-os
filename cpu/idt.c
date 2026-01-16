@@ -5,6 +5,7 @@ extern void isr0();
 extern void isr14(); // Page Fault
 extern void irq0();
 extern void irq1(); // Keyboard IRQ Wrapper
+extern void isr128(); // System Call Handler
 
 // 1. Define the actual variables here (Allocates memory)
 idt_gate_t idt[IDT_ENTRIES];
@@ -47,6 +48,12 @@ void set_idt()
     set_idt_gate(32, (uint32_t)irq0);
     // IRQ 1 (Keyboard) -> INT 33
     set_idt_gate(33, (uint32_t)irq1);
+
+    // Register System Call Handler (INT 0x80 = 128)
+    set_idt_gate(128, (uint32_t)isr128);
+    // Critical: Set DPL=3 (User Privilege)
+    // 0xEE = 1110 1110 (P=1, DPL=11, Type=1110)
+    idt[128].flags = 0xEE; 
 
   // Execute "lidt" instruction (Load IDT)
   // Using inline assembly to execute assembly instructions within C code.

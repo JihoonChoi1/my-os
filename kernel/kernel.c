@@ -8,6 +8,8 @@
 #include "pmm.h"
 #include "vmm.h"
 #include "kheap.h"
+#include "gdt.h"
+#include "tss.h"
 
 extern uint32_t _kernel_end;
 
@@ -340,6 +342,11 @@ void main()
 
     set_idt();
     print_string("IDT loaded successfully!\n");
+
+    // Initialize GDT and TSS 
+    init_gdt();
+    init_tss();
+    print_string("GDT & TSS Initialized.\n");
     
     // Initialize Timer (50 Hz)
     init_timer(50);
@@ -389,6 +396,11 @@ void main()
     
     // Initialize Shell
     shell_init();
+
+    extern void switch_to_user_mode();
+    print_string("\nSwitching to User Mode (Ring 3)...\n");
+    switch_to_user_mode();
+    print_string("This executes in User Mode (if visible)!\n"); // Should never run if infinite loop in ASM
 
     while(1) {
         // Wait for interrupt (Saves CPU power)
