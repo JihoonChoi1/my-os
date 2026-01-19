@@ -10,6 +10,8 @@
 #include "kheap.h"
 #include "gdt.h"
 #include "tss.h"
+#include "../drivers/ata.h"
+#include "../fs/simplefs.h"
 
 extern uint32_t _kernel_end;
 
@@ -388,8 +390,8 @@ void main()
 
     // Initialize Multitasking
     init_multitasking();
-    create_task(&task_a);
-    create_task(&task_b);
+    // create_task(&task_a); // Disable for Shell Demo
+    // create_task(&task_b); // Disable for Shell Demo
     
     // Enable Interrupts
     __asm__ volatile("sti");
@@ -397,9 +399,26 @@ void main()
     // Initialize Shell
     shell_init();
 
+    // --- ATA Driver Test ---
+    print_string("Testing ATA Driver...\n");
+    uint8_t sect[512];
+    ata_read_sector(0, sect); // Read MBR (Sector 0)
+    print_string("Read Sector 0. Signature: ");
+    print_hex(sect[510]);
+    print_string(" ");
+    print_hex(sect[511]);
+    print_string("\n");
+
+
+    fs_init();
+
+    // Commented out user mode switch for now to use the Shell
+    
+    /*
     extern void switch_to_user_mode();
     print_string("\nSwitching to User Mode (Ring 3)...\n");
     switch_to_user_mode();
+    */
     print_string("This executes in User Mode (if visible)!\n"); // Should never run if infinite loop in ASM
 
     while(1) {
