@@ -91,10 +91,11 @@ int main(int argc, char *argv[])
     sb.inode_bitmap_block = sb_block_idx + 1; // Sector 18
     sb.inode_table_block = sb_block_idx + 2;  // Sector 19
     sb.data_block_start = sb_block_idx + 10;  // Sector 27
-    sb.num_inodes = (sb.data_block_start - sb.inode_table_block) * (PROJ_BLOCK_SIZE / sizeof(sfs_inode));
-
+    sb.num_inodes = (sb.data_block_start - sb.inode_table_block) * (PROJ_BLOCK_SIZE / sizeof(sfs_inode));ㄴ
     fseek(disk_fp, sb_block_idx * PROJ_BLOCK_SIZE, SEEK_SET);
     fwrite(&sb, 1, sizeof(sb), disk_fp);
+
+    uint32_t next_free_block = sb.data_block_start;
 
     // Write Root Inode (File: "kernel.bin")
     // We place it at index 0 of the inode table.
@@ -133,7 +134,7 @@ int main(int argc, char *argv[])
 
         for (uint32_t i = 0; i < needed_blocks; i++)
         {
-            kernel_inode.blocks[i] = sb.data_block_start + i;
+            kernel_inode.blocks[i] = next_free_block + i;
         }
 
         // Write Inode to Inode Table (Sector 19)
@@ -146,12 +147,75 @@ int main(int argc, char *argv[])
         uint8_t *kernel_data = (uint8_t *)malloc(kernel_size);
         fread(kernel_data, 1, kernel_size, kernel_fp);
 
-        fseek(disk_fp, sb.data_block_start * PROJ_BLOCK_SIZE, SEEK_SET);
+        fseek(disk_fp, next_free_block * PROJ_BLOCK_SIZE, SEEK_SET);
         fwrite(kernel_data, 1, kernel_size, disk_fp);
 
+        next_free_block += needed_blocks;
         free(kernel_data);
         fclose(kernel_fp);
     }
+
+    // Write User Program Inode (File: "hello.elf")
+    printf("Writing hello.elf Inode...\n");
+    FILE *prog_fp = fopen("programs/hello.elf", "rb");
+    if (!prog_fp)
+    {
+        printf("WARNING: programs/hello.elf not found. Skipping.\n");
+    }
+    else
+    {
+        fseek(prog_fp, 0, SEEK_END);
+        uint32_t prog_size = ftell(prog_fp);
+        fseek(prog_fp, 0, SEEK_SET);
+        
+        printf("hello.elf size: %d bytes\n", prog_size);
+
+        sfs_inode prog_inode;
+        memset(&prog_inode, 0, sizeof(prog_inode));
+        prog_inode.used = 1;
+        strcpy(prog_inode.filename, "hello.elf");
+        prog_inode.size = prog_size;
+        
+        uint32_t needed_blocks = (prog_size + PROJ_BLOCK_SIZE - 1) / PROJ_BLOCK_SIZE;
+        
+        for (uint32_t i = 0; i < needed_blocks; i++)
+        {
+            prog_inode.blocks[i] = next_free_block + i;
+        }
+
+        // Write Inode to Inode Table (Sector 19)
+        // Index 1 (Second inode)
+        // struct size is not exactly power of 2 aligned in C struct without pragma pack maybe?
+        // simplefs definition has padding to ~60 bytes?
+        // Wait, Inode Size: simplefs.h says padding is explicitly added.
+        // Let's assume sizeof(sfs_inode) is correct stride.
+        
+        fseek(disk_fp, sb.inode_table_block * PROJ_BLOCK_SIZE + sizeof(sfs_inode), SEEK_SET);
+        fwrite(&prog_inode, 1, sizeof(prog_inode), disk_fp);
+
+        // Write Data
+        printf("Writing hello.elf Data...\n");
+        uint8_t *prog_data = (uint8_t *)malloc(prog_size);
+        fread(prog_data, 1, prog_size, prog_fp);
+
+        fseek(disk_fp, next_free_block * PROJ_BLOCK_SIZE, SEEK_SET);
+        fwrite(prog_data, 1, prog_size, disk_fp);
+
+        free(prog_data);
+        next_free_block += needed_blocks;
+        fclose(prog_fp);
+    }
+
+    printf("Updating Inode Bitmap...\n");
+
+    // Move to sector 18 where the bitmap is
+    fseek(disk_fp, sb.inode_bitmap_block * PROJ_BLOCK_SIZE, SEEK_SET);
+
+
+    uint8_t bitmap[512] = {0}; 
+    bitmap[0] = 0x03; 
+
+    fwrite(bitmap, 1, 512, disk_fp);
 
     fclose(disk_fp);
     printf("Successfully created disk.img!\n");

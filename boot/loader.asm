@@ -83,7 +83,7 @@ start:
     je .found_kernel
 
 .next_inode:
-    add di, 92
+    add di, 256    ; sizeof(sfs_inode) is now 256 bytes
     loop .find_loop
     jmp .kernel_not_found
 
@@ -117,7 +117,7 @@ start:
     
     mov bx, cx
     shl bx, 2           ; BX = CX * 4
-    add bx, 40          ; BX = 40 + (CX * 4) (Offset to blocks[i])
+    add bx, 37          ; BX = 37 + (CX * 4) (Offset to blocks[i]: 1+32+4=37)
     
     add si, bx          ; SI = Inode Addr + Offset
     mov eax, [si]       ; Get sector number

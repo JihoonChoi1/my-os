@@ -59,12 +59,18 @@ int fs_find_file(char *filename, sfs_inode *out_inode) {
     for (uint32_t i = 0; i < total_inode_blocks; i++) {
         ata_read_sector(sb.inode_table_block + i, buffer);
         
-        sfs_inode *inodes = (sfs_inode*)buffer;
+        // Iterate through all inodes in this block
         for (uint32_t j = 0; j < inodes_per_block; j++) {
-            if (inodes[j].used == 1) {
-                if (strcmp(inodes[j].filename, filename) == 0) {
-                    *out_inode = inodes[j];
-                    return 1; // Found!
+            sfs_inode *current_inode = (sfs_inode *)(buffer + j * sizeof(sfs_inode));
+            
+            // Check bounds (optional but good practice if total inodes is strict)
+            // But checking 'used' flag is sufficient usually
+            
+            if (current_inode->used == 1) {
+                if (strcmp(filename, current_inode->filename) == 0) {
+                    // Found! Copy to output
+                    *out_inode = *current_inode;
+                    return 1;
                 }
             }
         }
@@ -77,20 +83,19 @@ int fs_find_file(char *filename, sfs_inode *out_inode) {
 void fs_list_files() {
     print_string("--- File List ---\n");
     uint8_t buffer[512];
-    
     uint32_t inodes_per_block = 512 / sizeof(sfs_inode);
     uint32_t total_inode_blocks = (sb.num_inodes + inodes_per_block - 1) / inodes_per_block;
-    
     for (uint32_t i = 0; i < total_inode_blocks; i++) {
         ata_read_sector(sb.inode_table_block + i, buffer);
         
-        sfs_inode *inodes = (sfs_inode*)buffer;
         for (uint32_t j = 0; j < inodes_per_block; j++) {
-            if (inodes[j].used == 1) {
-                print_string("- ");
-                print_string(inodes[j].filename);
+            sfs_inode *current_inode = (sfs_inode *)(buffer + j * sizeof(sfs_inode));
+            
+            if (current_inode->used == 1) {
+                print_string("  - ");
+                print_string(current_inode->filename);
                 print_string(" (");
-                print_dec(inodes[j].size);
+                print_dec(current_inode->size);
                 print_string(" bytes)\n");
             }
         }

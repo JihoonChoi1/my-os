@@ -27,15 +27,22 @@ LDFLAGS = --oformat binary -m elf_i386 -T kernel.ld
 run: disk.img
 	qemu-system-x86_64 -drive format=raw,file=disk.img
  
+# User Programs
+PROGRAMS = programs/hello.elf
+
 # --------------------------------------------------------
 # OS Image Creation
 # --------------------------------------------------------
-disk.img: mkfs boot.bin loader.bin kernel.bin
+disk.img: mkfs boot.bin loader.bin kernel.bin $(PROGRAMS)
 	./mkfs
+
+# Compile User Programs (ELF)
+programs/%.elf: programs/%.c programs/linker.ld
+	$(CC) -ffreestanding -nostdlib -m32 -g -Wl,-m,elf_i386 -T programs/linker.ld $< -o $@
  
 # Compile mkfs tool (Host) - Needs to find fs.h
 mkfs: tools/mkfs.c fs/fs.h
-	gcc -I fs -o mkfs tools/mkfs.c
+	gcc -m64 -I fs -o mkfs tools/mkfs.c
  
 # --------------------------------------------------------
 # Kernel Binary Creation
