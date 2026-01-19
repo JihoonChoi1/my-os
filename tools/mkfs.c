@@ -91,7 +91,7 @@ int main(int argc, char *argv[])
     sb.inode_bitmap_block = sb_block_idx + 1; // Sector 18
     sb.inode_table_block = sb_block_idx + 2;  // Sector 19
     sb.data_block_start = sb_block_idx + 10;  // Sector 27
-    sb.num_inodes = (sb.data_block_start - sb.inode_table_block) * (PROJ_BLOCK_SIZE / sizeof(sfs_inode));ㄴ
+    sb.num_inodes = (sb.data_block_start - sb.inode_table_block) * (PROJ_BLOCK_SIZE / sizeof(sfs_inode));
     fseek(disk_fp, sb_block_idx * PROJ_BLOCK_SIZE, SEEK_SET);
     fwrite(&sb, 1, sizeof(sb), disk_fp);
 
