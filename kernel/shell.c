@@ -97,6 +97,31 @@ void cmd_cat(char *filename) {
     }
 }
 
+// External: ELF Loader
+extern uint32_t elf_load(char *filename);
+// External: Switch to User Mode
+extern void enter_user_mode(uint32_t entry_point);
+
+void cmd_exec(char *filename) {
+    if (*filename == '\0') {
+        print_string("Usage: exec <filename>\n");
+    }
+
+    // 1. Load ELF file
+    uint32_t entry_point = elf_load(filename);
+    
+    if (entry_point != 0) {
+        // 2. Switch to User Mode and Jump
+        print_string("[Shell] Executing program...\n");
+        enter_user_mode(entry_point);
+        // Note: verify this never returns unless we implement a way to return (e.g. kill process)
+        // Since we don't have a scheduler switching back to the shell yet (shell is just a function call in kernel main),
+        // once we jump to user mode, we are STUCK there until an interrupt or crash.
+    } else {
+        print_string("[Shell] Execution Failed.\n");
+    }
+}
+
 // ---------------------------------------------------------
 // [Refactor] Main Command Executor
 // ---------------------------------------------------------
@@ -143,6 +168,9 @@ void execute_command(char *input) {
     }
     else if (strcmp(cmd, "cat") == 0) {
         cmd_cat(arg);
+    }
+    else if (strcmp(cmd, "exec") == 0) {
+        cmd_exec(arg);
     }
     else {
         print_string("Unknown command: ");

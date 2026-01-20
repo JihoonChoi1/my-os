@@ -396,8 +396,7 @@ void main()
     // Enable Interrupts
     __asm__ volatile("sti");
     
-    // Initialize Shell
-    shell_init();
+
 
     // --- ATA Driver Test ---
     print_string("Testing ATA Driver...\n");
@@ -412,6 +411,8 @@ void main()
 
     fs_init();
 
+
+
     // Commented out user mode switch for now to use the Shell
     
     /*
@@ -419,7 +420,10 @@ void main()
     print_string("\nSwitching to User Mode (Ring 3)...\n");
     switch_to_user_mode();
     */
-    print_string("This executes in User Mode (if visible)!\n"); // Should never run if infinite loop in ASM
+    // print_string("This executes in User Mode (if visible)!\n"); // Should never run if infinite loop in ASM
+
+    // Initialize Shell
+    shell_init();
 
     while(1) {
         // Wait for interrupt (Saves CPU power)

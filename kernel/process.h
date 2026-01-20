@@ -14,5 +14,6 @@ typedef struct {
 void init_multitasking();
 void create_task(void (*function)());
 void schedule();
+void enter_user_mode(uint32_t entry_point);
 
 #endif

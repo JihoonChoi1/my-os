@@ -5,6 +5,47 @@
 // void switch_task(uint32_t *next_esp, uint32_t **current_esp_ptr);
 extern void switch_task(uint32_t *next_esp, uint32_t **current_esp_ptr);
 
+// Switch to User Mode (Ring 3)
+// Arguments: entry_point - The address of the user program to execute
+void enter_user_mode(uint32_t entry_point) {
+    // We need to set up the stack for IRET:
+    // SS (User Data Segment with RPL=3)
+    // ESP (User Stack Pointer)
+    // EFLAGS (Interrupts enabled)
+    // CS (User Code Segment with RPL=3)
+    // EIP (Entry Point)
+
+    // Segment Selectors:
+    // Kernel Code: 0x08, Kernel Data: 0x10
+    // User Code: 0x18 (Index 3) | 3 = 0x1B
+    // User Data: 0x20 (Index 4) | 3 = 0x23
+    
+    // User Stack is mapped at 0xF00000 (15MB) - See vmm.c
+    // Let's set ESP to 0xF01000 (end of the mapped page approx)
+    uint32_t user_stack = 0xF01000;
+
+    __asm__ volatile(
+        "mov $0x23, %%ax\n" // User Data Segment (Index 4 | 3)
+        "mov %%ax, %%ds\n"
+        "mov %%ax, %%es\n"
+        "mov %%ax, %%fs\n"
+        "mov %%ax, %%gs\n"
+        
+        "pushl $0x23\n"     // SS (User Data Segment)
+        "pushl %0\n"        // ESP (User Stack Pointer)
+        "pushf\n"           // Push EFLAGS
+        "pop %%eax\n"
+        "or $0x200, %%eax\n" // Enable Interrupts (IF=1)
+        "push %%eax\n"      // Push updated EFLAGS
+        "pushl $0x1B\n"     // CS (User Code Segment (Index 3) | 3)
+        "pushl %1\n"        // EIP (Entry Point)
+        "iret\n"            // Interrupt Return -> Jumps to User Mode!
+        : 
+        : "r"(user_stack), "r"(entry_point)
+        : "eax", "memory"
+    );
+}
+
 // Maximum processes
 #define MAX_PROCESSES 5
 

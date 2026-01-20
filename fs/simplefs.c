@@ -5,7 +5,9 @@
 // Debug functions
 extern void print_string(char* str);
 extern void print_hex(uint32_t n);
+extern void print_hex(uint32_t n);
 extern void print_dec(uint32_t n);
+extern void memory_copy(char *source, char *dest, int nbytes);
 
 // Global Superblock
 sfs_superblock sb;
@@ -55,21 +57,26 @@ int fs_find_file(char *filename, sfs_inode *out_inode) {
     
     uint32_t inodes_per_block = 512 / sizeof(sfs_inode);
     uint32_t total_inode_blocks = (sb.num_inodes + inodes_per_block - 1) / inodes_per_block;
-    
+    // print_dec(inodes_per_block); //2
+    // print_string("\n");
+    // print_dec(total_inode_blocks);//8
+    // print_string("\n");
+    // while(1);
     for (uint32_t i = 0; i < total_inode_blocks; i++) {
         ata_read_sector(sb.inode_table_block + i, buffer);
-        
         // Iterate through all inodes in this block
         for (uint32_t j = 0; j < inodes_per_block; j++) {
             sfs_inode *current_inode = (sfs_inode *)(buffer + j * sizeof(sfs_inode));
-            
             // Check bounds (optional but good practice if total inodes is strict)
             // But checking 'used' flag is sufficient usually
             
             if (current_inode->used == 1) {
+
                 if (strcmp(filename, current_inode->filename) == 0) {
                     // Found! Copy to output
-                    *out_inode = *current_inode;
+                    // Use explicit memory_copy to avoid compiler emitting memcpy/struct copy issues
+                    // *out_inode = *current_inode; 
+                    memory_copy((char*)current_inode, (char*)out_inode, sizeof(sfs_inode));
                     return 1;
                 }
             }

@@ -48,6 +48,28 @@ void vmm_init() {
     // Index 0 (0-4MB) -> User Accessible
     kernel_directory->m_entries[0] = (uint32_t)first_table | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
 
+    // --- USER PROGRAM TEXT/DATA (4MB - 8MB) ---
+    // User programs are linked at 0x400000 (4MB).
+    // This corresponds to Directory Index 1.
+    
+    page_table* user_text_table = (page_table*)pmm_alloc_block();
+    if (!user_text_table) {
+         print_string("VMM Error: Failed to allocate User Text Table!\n");
+         return;
+    }
+    
+    // Map 4MB-8MB. We'll map them as Present | Writable | User.
+    // In a real OS, we might want to map these on demand (Page Fault), but for now, 
+    // we map the whole 4MB chunk so we can just memcpy the ELF segments there.
+    for (int i = 0; i < PAGES_PER_TABLE; i++) {
+        uint32_t frame = (1 * 1024 * PAGE_SIZE) + (i * PAGE_SIZE); // Base 4MB
+        user_text_table->m_entries[i] = frame | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
+    }
+    
+    // Register in Directory Index 1
+    kernel_directory->m_entries[1] = (uint32_t)user_text_table | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
+    print_string("VMM: Mapped 4-8MB for User Programs.\n");
+
     // --- HEAP MAPPING (8MB - 12MB) ---
     // We want the heap to start at 10MB (0xA00000).
     // 10MB falls into the range 8MB-12MB, which is Directory Index 2.
