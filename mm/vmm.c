@@ -111,10 +111,14 @@ void vmm_init() {
     // ((15 * 1024 * 1024) % (4 * 1024 * 1024)) / 4096 = (3MB offset) / 4KB = 3072KB / 4KB = 768.
     // Frame: 0xF00000.
     
-    int user_stack_idx = 768; // 3MB offset into the 4MB table
-    uint32_t user_stack_frame = 0xF00000;
+    // Map 16KB for User Stack (4 Pages)
+    // 0xF00000 to 0xF04000
+    int user_stack_idx = 768; // 3MB offset into 3rd Page Table (15MB mark)
     
-    user_stack_table->m_entries[user_stack_idx] = user_stack_frame | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
+    for (int i = 0; i < 4; i++) {
+        uint32_t user_stack_frame = 0xF00000 + (i * PAGE_SIZE);
+        user_stack_table->m_entries[user_stack_idx + i] = user_stack_frame | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
+    }
     
     // Register in Directory Index 3 (12-16MB)
     kernel_directory->m_entries[3] = (uint32_t)user_stack_table | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;

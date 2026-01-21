@@ -185,11 +185,6 @@ int main(int argc, char *argv[])
 
         // Write Inode to Inode Table (Sector 19)
         // Index 1 (Second inode)
-        // struct size is not exactly power of 2 aligned in C struct without pragma pack maybe?
-        // simplefs definition has padding to ~60 bytes?
-        // Wait, Inode Size: simplefs.h says padding is explicitly added.
-        // Let's assume sizeof(sfs_inode) is correct stride.
-        
         fseek(disk_fp, sb.inode_table_block * PROJ_BLOCK_SIZE + sizeof(sfs_inode), SEEK_SET);
         fwrite(&prog_inode, 1, sizeof(prog_inode), disk_fp);
 
@@ -205,15 +200,60 @@ int main(int argc, char *argv[])
         next_free_block += needed_blocks;
         fclose(prog_fp);
     }
+    
+    // Write Shell Program Inode (File: "shell.elf")
+    printf("Writing shell.elf Inode...\n");
+    FILE *shell_fp = fopen("programs/shell.elf", "rb");
+    if (!shell_fp)
+    {
+        printf("WARNING: programs/shell.elf not found. Skipping.\n");
+    }
+    else
+    {
+        fseek(shell_fp, 0, SEEK_END);
+        uint32_t shell_size = ftell(shell_fp);
+        fseek(shell_fp, 0, SEEK_SET);
+        
+        printf("shell.elf size: %d bytes\n", shell_size);
 
+        sfs_inode shell_inode;
+        memset(&shell_inode, 0, sizeof(shell_inode));
+        shell_inode.used = 1;
+        strcpy(shell_inode.filename, "shell.elf");
+        shell_inode.size = shell_size;
+        
+        uint32_t needed_blocks = (shell_size + PROJ_BLOCK_SIZE - 1) / PROJ_BLOCK_SIZE;
+        
+        for (uint32_t i = 0; i < needed_blocks; i++)
+        {
+            shell_inode.blocks[i] = next_free_block + i;
+        }
+
+        // Write Inode to Inode Table (Sector 19)
+        // Index 2 (Third inode)
+        fseek(disk_fp, sb.inode_table_block * PROJ_BLOCK_SIZE + 2 * sizeof(sfs_inode), SEEK_SET);
+        fwrite(&shell_inode, 1, sizeof(shell_inode), disk_fp);
+
+        // Write Data
+        printf("Writing shell.elf Data...\n");
+        uint8_t *shell_data = (uint8_t *)malloc(shell_size);
+        fread(shell_data, 1, shell_size, shell_fp);
+
+        fseek(disk_fp, next_free_block * PROJ_BLOCK_SIZE, SEEK_SET);
+        fwrite(shell_data, 1, shell_size, disk_fp);
+
+        free(shell_data);
+        next_free_block += needed_blocks;
+        fclose(shell_fp);
+    }
+    
     printf("Updating Inode Bitmap...\n");
 
     // Move to sector 18 where the bitmap is
     fseek(disk_fp, sb.inode_bitmap_block * PROJ_BLOCK_SIZE, SEEK_SET);
 
-
     uint8_t bitmap[512] = {0}; 
-    bitmap[0] = 0x03; 
+    bitmap[0] = 0x07; // 0000 0111 -> 3 inodes used (kernel, hello, shell)
 
     fwrite(bitmap, 1, 512, disk_fp);
 

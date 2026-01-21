@@ -26,6 +26,30 @@ extern void print_string(char *str);
 // Track Shift Key State (1 = Pressed, 0 = Released)
 static int shift_pressed = 0;
 
+#define KEYBOARD_BUFFER_SIZE 256
+char kb_buffer[KEYBOARD_BUFFER_SIZE];
+int kb_head = 0;
+int kb_tail = 0;
+
+void keyboard_push(char c) {
+    int next = (kb_head + 1) % KEYBOARD_BUFFER_SIZE;
+    if (next != kb_tail) {
+        kb_buffer[kb_head] = c;
+        kb_head = next;
+    }
+}
+
+char keyboard_getchar() {
+    // Blocking Wait
+    while (kb_head == kb_tail) {
+        __asm__ volatile("hlt");
+    }
+    
+    char c = kb_buffer[kb_tail];
+    kb_tail = (kb_tail + 1) % KEYBOARD_BUFFER_SIZE;
+    return c;
+}
+
 void keyboard_handler()
 {
     // 1. Read scancode
@@ -57,8 +81,12 @@ void keyboard_handler()
         }
 
         if (letter != 0) {
-            // Send character to Shell Input Buffer
-            shell_handle_input(letter);
+            // Push to Buffer instead of calling shell directly
+            keyboard_push(letter);
+            
+            // Optional: Echo for now if kernel shell is still active
+            // but for user shell, we want the user program to echo.
+            // shell_handle_input(letter); // Removed
         }
     }
 

@@ -228,13 +228,9 @@ void handle_scrolling()
     }
 }
 
-// Print a string and update the hardware cursor position automatically
-void print_string(char *string)
+void print_buffer(char *string, int len)
 {
-    int i = 0;
-
-    // Use the global 'cursor_offset' instead of reading from hardware
-    while (string[i] != 0)
+    for (int i = 0; i < len; i++)
     {
         // Handle newline character (\n)
         if (string[i] == '\n')
@@ -254,12 +250,20 @@ void print_string(char *string)
 
         // Check for scrolling after every character print or newline
         handle_scrolling();
-
-        i++;
     }
 
-    // Synchronize the blinking hardware cursor with our text position
+    // 4. 커서 업데이트 (루프 밖에서 한 번만 해도 충분합니다)
     set_cursor_offset(cursor_offset);
+}
+
+// Print a string and update the hardware cursor position automatically
+void print_string(char *string)
+{
+    int i = 0;
+
+    // Use the global 'cursor_offset' instead of reading from hardware
+    while (string[i] != 0) i++;
+    print_buffer(string, i);
 }
 
 // Global function to handle backspace visually
@@ -422,11 +426,23 @@ void main()
     */
     // print_string("This executes in User Mode (if visible)!\n"); // Should never run if infinite loop in ASM
 
-    // Initialize Shell
-    shell_init();
+    
+    extern uint32_t elf_load(char *filename);
+    extern void enter_user_mode(uint32_t entry_point);
 
+    print_string("\n[Kernel] Launching User Shell (shell.elf)...\n");
+    
+    // 1. Load Shell
+    uint32_t shell_entry = elf_load("shell.elf");
+    if (shell_entry) {
+        // 2. Jump to User Mode
+        enter_user_mode(shell_entry);
+    } else {
+        print_string("[Kernel] Error: Could not load shell.elf\n");
+    }
+
+    // Fallback infinite loop (if shell fails or returns)
     while(1) {
-        // Wait for interrupt (Saves CPU power)
         __asm__ volatile("hlt");
     }
 }

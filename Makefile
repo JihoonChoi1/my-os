@@ -28,7 +28,7 @@ run: disk.img
 	qemu-system-x86_64 -drive format=raw,file=disk.img
  
 # User Programs
-PROGRAMS = programs/hello.elf
+PROGRAMS = programs/hello.elf programs/shell.elf
 
 # --------------------------------------------------------
 # OS Image Creation
@@ -37,8 +37,9 @@ disk.img: mkfs boot.bin loader.bin kernel.bin $(PROGRAMS)
 	./mkfs
 
 # Compile User Programs (ELF)
-programs/%.elf: programs/%.c programs/linker.ld
-	$(CC) -ffreestanding -nostdlib -m32 -g -Wl,-m,elf_i386 -T programs/linker.ld $< -o $@
+# Compile User Programs (ELF)
+programs/%.elf: programs/%.c programs/lib.c programs/linker.ld
+	$(CC) -ffreestanding -nostdlib -m32 -g -Wl,-m,elf_i386 -T programs/linker.ld $< programs/lib.c -o $@
  
 # Compile mkfs tool (Host) - Needs to find fs.h
 mkfs: tools/mkfs.c fs/fs.h
