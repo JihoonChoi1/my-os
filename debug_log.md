@@ -88,3 +88,40 @@ To isolate the exact line causing the crash, I inserted infinite loops (`while(1
 - **Resolution:**
     - Changed IDT Gate `128` (Syscall) to `0xEF` (**Trap Gate**).
     - **Effect:** Trap Gates do *not* clear interrupts on entry. This allows hardware interrupts to preempt the syscall handler, updating the keyboard buffer and breaking the `while` loop.
+
+---
+
+# Debugging Log: `sys_fork` Implementation Issues
+
+**Date:** 2026-01-26
+**Module:** Kernel Process Management (`kernel/process.c`)
+**Severity:** Critical (Kernel Panic / System Reset)
+
+## 1. Issue: Race Condition in Process State Update
+- **Symptom:** Executing `exec hello.elf` caused the screen to flicker rapidly and return to the shell immediately, indicating a sudden reset or crash.
+- **Investigation:**
+    - Used binary search with `while(1)` loops to isolate the crash point.
+    - Identified that the crash happened immediately after `processes[child_pid].state = PROCESS_READY;`.
+    - Realized that the Timer Interrupt fired right after this line.
+- **Root Cause:**
+    - The process state was set to `PROCESS_READY` *before* the child process's kernel stack (Trap Frame) was fully initialized.
+    - The scheduler picked the uninitialized child process, leading to a context switch with invalid stack values.
+- **Resolution:**
+    - Moved the `PROCESS_READY` assignment to the very end of `sys_fork`, ensuring initialization is complete before scheduling.
+
+## 2. Issue: Implicit memcpy in Struct Assignment
+- **Symptom:** After fixing the race condition, the kernel crashed at a later point in `sys_fork`.
+- **Investigation:**
+    - Used binary search again and identified `*child_regs = *regs;` as the cause.
+- **Root Cause:**
+    - Struct assignment in C (`=`) implicitly calls `memcpy`.
+    - Since the kernel is compiled in `freestanding` mode, `memcpy` is not linked, causing a jump to an invalid address.
+- **Resolution:**
+    - Replaced struct assignment with a manual member-wise copy using a loop:
+    ```c
+    uint32_t *src_ptr = (uint32_t*)regs;
+    uint32_t *dst_ptr = (uint32_t*)child_regs;
+    for (int i = 0; i < sizeof(registers_t) / 4; i++) {
+        dst_ptr[i] = src_ptr[i];
+    }
+    ```

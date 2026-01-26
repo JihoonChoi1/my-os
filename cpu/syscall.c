@@ -44,32 +44,19 @@ void syscall_read(registers_t *regs) {
 }
 
 // Helper for Exec (Syscall 3)
-void syscall_exec(registers_t *regs) {
-    // EAX=3
-    // EBX=Filename
-    char* filename = (char*)regs->ebx;
-    uint32_t entry = elf_load(filename);
-    if (entry) {
-        enter_user_mode(entry);
-    } else {
-        // Return -1 on failure
-        regs->eax = -1;
-    }
-}
+// External sys_execve
+extern int sys_execve(char *filename, char **argv, char **envp, registers_t *regs);
+
+/* 
+// Deprecated: syscall_exec logic moved to helper
+void syscall_exec(registers_t *regs) { ... } 
+*/
 
 // Helper for Exit
-void syscall_exit(registers_t *regs) {
-    // EAX=2
-    // EBX=Exit Code
-    print_string("\n[Program Exited] Code: ");
-    print_dec(regs->ebx);
-    
-    // In a real OS, we would kill the task.
-    // For now, loop forever
-    while(1) {
-        __asm__ volatile("hlt");
-    }
-}
+// Removed: syscall_exit implemented in process.c
+extern void sys_exit(int code);
+extern int sys_wait(int *status);
+extern int sys_fork(registers_t *regs);
 
 void syscall_handler(registers_t *regs) {
     // Dispatch based on EAX
@@ -81,10 +68,24 @@ void syscall_handler(registers_t *regs) {
             syscall_write(regs);
             break;
         case 2: // EXIT
-            syscall_exit(regs);
+            // EAX = sys_exit(code)
+            sys_exit(regs->ebx); 
             break;
         case 3: // EXEC
-            syscall_exec(regs);
+            // EAX = sys_execve(filename, argv, envp, regs)
+            // Currently ignoring argv/envp (NULL)
+            regs->eax = sys_execve((char*)regs->ebx, 0, 0, regs); 
+            break;
+        case 4: // FORK
+            // EAX = sys_fork(regs)
+            //while(1);
+            regs->eax = sys_fork(regs);
+            //while(1);
+            break;
+        case 5: // WAIT
+            // EAX = sys_wait(status)
+            // status pointer in EBX
+            regs->eax = sys_wait((int*)regs->ebx);
             break;
         default:
             print_string("Unknown Syscall: ");

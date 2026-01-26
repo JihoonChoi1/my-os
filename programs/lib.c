@@ -45,6 +45,52 @@ void print(char *str) {
     //while(1);
 }
 
+void print_dec(int n) {
+    if (n == 0) {
+        putchar('0');
+        return;
+    }
+
+    if (n < 0) {
+        putchar('-');
+        n = -n;
+    }
+
+    char buffer[12];
+    int i = 0;
+    while (n > 0) {
+        buffer[i++] = (n % 10) + '0';
+        n /= 10;
+    }
+
+    // Reverse print
+    while (i > 0) {
+        putchar(buffer[--i]);
+    }
+}
+
+void print_hex(int n) {
+    putchar('0');
+    putchar('x');
+    if (n == 0) {
+        putchar('0');
+        return;
+    }
+
+    char buffer[10];
+    int i = 0;
+    while (n > 0) {
+        int rem = n % 16;
+        if (rem < 10) buffer[i++] = rem + '0';
+        else buffer[i++] = (rem - 10) + 'A';
+        n /= 16;
+    }
+
+    while (i > 0) {
+        putchar(buffer[--i]);
+    }
+}
+
 // 2. String Functions
 int strcmp(char *s1, char *s2) {
     int i = 0;
@@ -63,4 +109,12 @@ void exit(int code) {
 
 int exec(char *filename) {
     return syscall(3, (int)filename, 0, 0);
+}
+
+int fork() {
+    return syscall(4, 0, 0, 0);
+}
+
+int wait(int *status) {
+    return syscall(5, (int)status, 0, 0);
 }

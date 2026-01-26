@@ -49,11 +49,28 @@ void main() {
             // Check for 'exec '
             if (buffer[0] == 'e' && buffer[1] == 'x' && buffer[2] == 'e' && buffer[3] == 'c' && buffer[4] == ' ') {
                  char *program = buffer + 5;
-                 print("Executing: ");
-                 print(program);
-                 print("\n");
-                 if (exec(program) == -1) {
-                     print("Failed to execute program.\n");
+                 //while(1);
+                 int pid = fork();
+                 //while(1);
+                 if (pid == 0) {
+                     // Child
+                     print_dec(pid);
+                     print("Executing: ");
+                     print(program);
+                     //while(1);
+                     print("\n");
+                     if (exec(program) == -1) {
+                         print("Failed to execute program.\n");
+                         exit(1); 
+                     }
+                 } else {
+                     // Parent
+                     int status;
+                     wait(&status);
+                     print("Child exited with code: ");
+                     // print_dec(status); // Need print_dec in lib.c? Not there yet.
+                     // Just use hex or simple char for now, or just print message.
+                     print("\n");
                  }
             } else {
                 print("Unknown command: ");

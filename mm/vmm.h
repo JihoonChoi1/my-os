@@ -74,4 +74,7 @@ void vmm_enable_paging();
 // Global Page Directory (Needed for loading CR3)
 extern page_directory* kernel_directory;
 
+// Clone a directory (Deep Copy for User Space)
+page_directory* vmm_clone_directory(page_directory* src);
+
 #endif

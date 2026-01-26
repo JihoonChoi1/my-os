@@ -8,7 +8,7 @@
 void main() {
     print("Hello from User Space! (Ring 3)\n");
     print("This is a real C program loaded from disk.\n");
-    
+    //while(1);
     // We must call exit(), otherwise execution falls off data (crash)
     exit(0);
 }

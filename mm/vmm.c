@@ -7,6 +7,15 @@ extern void print_string(char* str);
 // The Kernel's Page Directory
 page_directory* kernel_directory = 0;
 
+// Helper: Memory Set
+void *memset(void *s, int c, unsigned int n) {
+    unsigned char *p = s;
+    while (n--) {
+        *p++ = (unsigned char)c;
+    }
+    return s;
+}
+
 void vmm_init() {
     // Allocate a Page Directory from PMM
     // Since paging is OFF, the physical address returned is usable as a pointer.
@@ -125,6 +134,93 @@ void vmm_init() {
     // Note: PDE must be USER accessible too!
 
     print_string("VMM: Mapped User Stack at 0xF00000.\n");
+}
+
+// Helper to copy content of one physical frame to another
+// WARNING: This simply casts physical addresses to pointers.
+// It assumes that 'src' and 'dest' are inside the Identity Mapped region (currently 0-12MB is mapped).
+// If PMM returns a high address (e.g., > 16MB) that is not mapped, this WILL crash (Page Fault).
+// In a full OS, this should use temporary mapping (kmap).
+void copy_page_physical(uint32_t src, uint32_t dest) {
+    // Using a simple cast since we assume Identity Mapping for implemented ranges
+    uint32_t* src_ptr = (uint32_t*)src;
+    uint32_t* dest_ptr = (uint32_t*)dest;
+    
+    for (int i=0; i<1024; i++) {
+        dest_ptr[i] = src_ptr[i];
+    }
+}
+
+
+// Clone the current page directory (Deep Copy for User, Shared for Kernel)
+page_directory* vmm_clone_directory(page_directory* src) {
+    // 1. Allocate new Page Directory
+    page_directory* dir = (page_directory*)pmm_alloc_block();
+    if (!dir) return 0;
+
+    // [Safety] Zero initialization to prevent Triple Faults caused by garbage data
+    memset(dir, 0, sizeof(page_directory));
+
+    // 2. Iterate over all 1024 Page Tables
+    for (int i = 0; i < TABLES_PER_DIRECTORY; i++) {
+        
+        // Skip empty entries
+        if (!(src->m_entries[i] & I86_PTE_PRESENT)) continue;
+
+        // ---------------------------------------------------------
+        // Strategy: Copy vs Share based on Index
+        // ---------------------------------------------------------
+        
+        // [Deep Copy] User Space: Index 1 (Code/Data), Index 3 (Stack)
+        // Child process needs its own independent memory for these regions.
+        if (i == 1 || i == 3) {
+            
+            // A. Allocate new Page Table
+            page_table* dst_table = (page_table*)pmm_alloc_block();
+            if (!dst_table) return 0;
+            
+            // [Important] Initialize table
+            memset(dst_table, 0, sizeof(page_table));
+
+            // Get source physical address (Assumes Identity Mapping)
+            page_table* src_table = (page_table*)(src->m_entries[i] & 0xFFFFF000);
+
+            // B. Link in Directory
+            // Inherit flags (User/Write, etc.) from parent
+            uint32_t flags = src->m_entries[i] & 0x0FFF;
+            dir->m_entries[i] = (uint32_t)dst_table | flags;
+
+            // C. Deep Copy Pages inside the table
+            for (int j = 0; j < PAGES_PER_TABLE; j++) {
+                if (src_table->m_entries[j] & I86_PTE_PRESENT) {
+                    
+                    // 1. Source Physical Address
+                    uint32_t phys_src = src_table->m_entries[j] & 0xFFFFF000;
+                    
+                    // 2. Allocate new frame for Child
+                    uint32_t phys_dst = pmm_alloc_block();
+                    if (!phys_dst) return 0; 
+
+                    // 3. Copy Data (Phys -> Phys)
+                    // WARNING: This assumes phys_dst is reachable via Identity Mapping (0-4MB or similar).
+                    // If PMM returns a high address outside mapped regions, this WILL Page Fault.
+                    copy_page_physical(phys_src, phys_dst);
+
+                    // 4. Map into Child Table
+                    uint32_t pte_flags = src_table->m_entries[j] & 0x0FFF;
+                    dst_table->m_entries[j] = phys_dst | pte_flags;
+                }
+            }
+        }
+        
+        // [Shared] Kernel Space: Index 0 (Kernel Code), Index 2 (Kernel Heap)
+        // Everything else is shared by default to keep kernel state synchronized.
+        else {
+            dir->m_entries[i] = src->m_entries[i];
+        }
+    }
+
+    return dir;
 }
 
 void vmm_enable_paging() {

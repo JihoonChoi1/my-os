@@ -71,7 +71,7 @@ isr14:
     iret
 
 ; ---------------------------------------------
-; Handler for IRQ 1 (Keyboard Interrupt)
+; Handler for IRQ 0 (Timer Interrupt)
 ; ---------------------------------------------
 irq0:
     pusha               ; Save registers
@@ -97,6 +97,9 @@ irq0:
     popa                ; Restore registers
     iret                ; Return from interrupt
 
+; ---------------------------------------------
+; Handler for IRQ 1 (Keyboard Interrupt)
+; ---------------------------------------------
 irq1:
     pusha               ; Save registers
 
@@ -120,31 +123,7 @@ irq1:
     
     popa                ; Restore registers
     iret                ; Return from interrupt
-; ---------------------------------------------
-; Context Switching Function (Called from C)
-; void switch_task(uint32_t *next_esp, uint32_t **current_esp_ptr);
-; ---------------------------------------------
-global switch_task
-switch_task:
-    ; 1. Save Registers of the Current Task
-    pusha               ; Push EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI
-    pushf               ; Push EFLAGS
 
-    ; 2. Save Current Task's ESP
-    ; Arguments: [ESP+40] = next_esp, [ESP+44] = current_esp_ptr
-    ; Note: pusha (32) + pushf (4) + return addr (4) = 40 bytes offset to first arg
-    mov eax, [esp + 44] ; Get address of current_esp_ptr (pointer to a pointer)
-    mov [eax], esp      ; Store the current ESP value into that pointer
-
-    ; 3. Load Next Task's ESP
-    mov eax, [esp + 40] ; Get next_esp (value)
-    mov esp, eax        ; Overwrite ESP with new stack!
-
-    ; 4. Restore Registers of the Next Task
-    popf                ; Restore EFLAGS
-    popa                ; Restore General Purpose Registers
-
-    ret                 ; Jump to the next task's code!
 
 ; ---------------------------------------------
 ; GDT Flush (Called from gdt.c)
@@ -261,6 +240,9 @@ isr128:
     
     pop eax         ; Cleanup stack (pop esp arg)
     
+; Common Exit Point for System Calls (and Fork)
+global isr_exit
+isr_exit:
     ; Restore Segments
     pop gs
     pop fs

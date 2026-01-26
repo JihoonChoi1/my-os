@@ -37,7 +37,6 @@ disk.img: mkfs boot.bin loader.bin kernel.bin $(PROGRAMS)
 	./mkfs
 
 # Compile User Programs (ELF)
-# Compile User Programs (ELF)
 programs/%.elf: programs/%.c programs/lib.c programs/linker.ld
 	$(CC) -ffreestanding -nostdlib -m32 -g -Wl,-m,elf_i386 -T programs/linker.ld $< programs/lib.c -o $@
  
@@ -48,8 +47,11 @@ mkfs: tools/mkfs.c fs/fs.h
 # --------------------------------------------------------
 # Kernel Binary Creation
 # --------------------------------------------------------
-# kernel.bin requires assembly objects and C objects
-kernel.bin: kernel/kernel_entry.o cpu/interrupt.o ${OBJ_FILES}
+# Explicitly list assembly objects here
+ASM_OBJS = kernel/context_switch.o
+
+# kernel.bin requires assembly objects, C objects, and extra ASM objects
+kernel.bin: kernel/kernel_entry.o cpu/interrupt.o ${OBJ_FILES} ${ASM_OBJS}
 	${LD} -o $@ $^ ${LDFLAGS}
  
 # --------------------------------------------------------
@@ -72,6 +74,8 @@ loader.bin: boot/loader.asm
 # Assemble Assembly files (Generic rule)
 %.o: %.asm
 	nasm $< -f elf -o $@
+
+
  
 # --------------------------------------------------------
 # Cleanup

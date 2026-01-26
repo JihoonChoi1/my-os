@@ -394,13 +394,11 @@ void main()
 
     // Initialize Multitasking
     init_multitasking();
-    // create_task(&task_a); // Disable for Shell Demo
-    // create_task(&task_b); // Disable for Shell Demo
     
-    // Enable Interrupts
-    __asm__ volatile("sti");
-    
-
+    // Create Test Tasks (Optional now, can comment out if testing Shell)
+    // print_string("Creating Tasks...\n");
+    // create_task(&task_a); 
+    // create_task(&task_b); 
 
     // --- ATA Driver Test ---
     print_string("Testing ATA Driver...\n");
@@ -412,10 +410,7 @@ void main()
     print_hex(sect[511]);
     print_string("\n");
 
-
     fs_init();
-
-
 
     // Commented out user mode switch for now to use the Shell
     
@@ -426,10 +421,10 @@ void main()
     */
     // print_string("This executes in User Mode (if visible)!\n"); // Should never run if infinite loop in ASM
 
-    
     extern uint32_t elf_load(char *filename);
     extern void enter_user_mode(uint32_t entry_point);
 
+    
     print_string("\n[Kernel] Launching User Shell (shell.elf)...\n");
     
     // 1. Load Shell
@@ -440,9 +435,15 @@ void main()
     } else {
         print_string("[Kernel] Error: Could not load shell.elf\n");
     }
-
-    // Fallback infinite loop (if shell fails or returns)
+    
+    
+    // Enable Interrupts to start Timer (which drives Scheduler)
+    __asm__ volatile("sti");
+    
+    // We enter an infinite loop here.
+    // The Scheduler will preempt this loop and switch to task_a / task_b.
     while(1) {
+        // Halt to save power, resume on interrupt
         __asm__ volatile("hlt");
     }
 }
