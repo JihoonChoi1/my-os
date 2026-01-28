@@ -58,6 +58,7 @@ static uint32_t process_count = 0;
 
 extern void print_string(char *str);
 extern void print_dec(int n);
+extern void print_hex(uint32_t n);
 
 // Initialize the process system
 void init_multitasking() {
@@ -76,7 +77,7 @@ void init_multitasking() {
     // Get current CR3
     uint32_t cr3;
     __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
-    processes[0].pd = (uint32_t*)cr3;
+    processes[0].pd = (page_directory*)cr3;
     
     current_pid = 0;
     process_count = 1;
@@ -97,11 +98,16 @@ void create_task(void (*function)()) {
     process_count++;
 
     processes[pid].id = pid;
-    processes[pid].parent_id = -1; // Default: No Parent (for test tasks)
-    processes[pid].state = PROCESS_READY;
+    processes[pid].parent_id = current_pid; // Set Parent to Current Process (e.g., Kernel PID 0)
     processes[pid].next = 0;
-    processes[pid].pd = processes[0].pd; // Default: Share Kernel Page Directory
-
+    // processes[pid].pd = processes[0].pd; 
+    
+    // Clone Page Directory (Deep Copy User Space, Share Kernel Space)
+    // This gives the new task its own address space, allowing it to become a User Process later.
+    extern page_directory* vmm_clone_directory(page_directory* src);
+    processes[pid].pd = (page_directory*)vmm_clone_directory((page_directory*)processes[0].pd);
+    print_string("pd::   ");
+    print_hex((uint32_t)processes[pid].pd);
     // 1. Initialize Stack Pointer to the END of the array (Stack grows triggers downwards)
     uint32_t *stack_ptr = &processes[pid].stack[1023];
 
@@ -125,10 +131,13 @@ void create_task(void (*function)()) {
 
     // TO make it point to last pused data
     processes[pid].esp = stack_ptr + 1;
+
     
     print_string("Created Task PID ");
     print_dec(pid);
     print_string("\n");
+
+    processes[pid].state = PROCESS_READY;
 }
 
 // Helper stub defined in context_switch.asm
@@ -157,15 +166,16 @@ int sys_fork(registers_t *regs) {
     // 4. Clone Address Space (Page Directory)
     // Deep Copy User Space, Share Kernel Space
     extern page_directory* vmm_clone_directory(page_directory* src);
-    processes[child_pid].pd = (uint32_t*)vmm_clone_directory((page_directory*)processes[parent_pid].pd);
+    processes[child_pid].pd = (page_directory*)vmm_clone_directory((page_directory*)processes[parent_pid].pd);
+    //print_hex((uint32_t)processes[child_pid].pd->m_entries[2]);
     // 5. Setup Child's Kernel Stack (The "Trap Frame" Method)
     // Instead of copying the running stack of sys_fork (which is complex),
     // we manually construct the stack so the child wakes up directly at 'fork_ret'.
-
+    //while(1);
     // A. Point to the top (high address) of the child's allocated kernel stack.
     // Assuming stack size is 4KB (1024 uint32_t).
     uint32_t *child_stack_ptr = processes[child_pid].stack + 1024;
-
+    // while(1);
     // -------------------------------------------------------------
     // Step 5-1: Push the Trap Frame (User Registers)
     // This restores the User Mode state (EIP, ESP, etc.) when child runs.
@@ -174,7 +184,7 @@ int sys_fork(registers_t *regs) {
     // Move pointer down to make space for registers_t
     child_stack_ptr -= (sizeof(registers_t) / 4);
     registers_t *child_regs = (registers_t*)child_stack_ptr;
-    //while(1);
+    // while(1);
     // Copy the Parent's register state (captured in syscall_handler) to Child's stack
     // Struct copy works in C (effectively memcpy)
     //*child_regs = *regs;
@@ -203,12 +213,12 @@ int sys_fork(registers_t *regs) {
     // child_stack_ptr[2] -> EDI
     // child_stack_ptr[3] -> EBP
     // child_stack_ptr[4] -> Return Address (fork_ret)
-    // while(1);
+    //while(1);
     child_stack_ptr[0] = 0; // EBX (Dummy)
     child_stack_ptr[1] = 0; // ESI (Dummy)
     child_stack_ptr[2] = 0; // EDI (Dummy)
     child_stack_ptr[3] = 0; // EBP (Dummy)
-    
+    // while(1);
     // ★ When switch_task executes 'ret', it will jump HERE:
     child_stack_ptr[4] = (uint32_t)fork_ret;
     //while(1);
@@ -218,6 +228,7 @@ int sys_fork(registers_t *regs) {
     processes[child_pid].esp = (uint32_t*)child_stack_ptr;
     // 7. Return Child PID to Parent
     // This return only executes for the PARENT process.
+    // while(1);
     processes[child_pid].state = PROCESS_READY;
     return child_pid;
 }
@@ -233,7 +244,7 @@ void schedule() {
     // 2. Select next process (Round-Robin with State Check)
     int next_pid = current_pid;
     int items_checked = 0;
-    
+    //while(1);
     do {
         next_pid++;
         if (next_pid >= process_count) {
@@ -252,12 +263,21 @@ void schedule() {
 
     // 3. Perform Context Switch ONLY if the task changed
     if (current_pid != prev_pid) {
+        // if(current_pid == 2) {
+        //     print_hex((uint32_t)processes[prev_pid].pd->m_entries[0]);
+        //     print_string("\n");
+        //     print_hex((uint32_t)processes[prev_pid].pd->m_entries[2]);
+        //     print_string("\n");
+        //     print_hex((uint32_t)processes[current_pid].pd->m_entries[0]);
+        //     print_string("\n");
+        //     print_hex((uint32_t)processes[current_pid].pd->m_entries[2]);
+        //     print_string("\n");
+        // }
         // Update TSS ESP0 to point to the TOP of the NEW task's kernel stack
         // This ensures that if an interrupt occurs in User Mode, ESP jumps here.
         extern void tss_set_stack(uint32_t kernel_esp);
-        uint32_t new_kernel_stack = (uint32_t)&processes[current_pid].stack[1023]; 
+        uint32_t new_kernel_stack = (uint32_t)(processes[current_pid].stack + 1024);
         tss_set_stack(new_kernel_stack);
-
         // Switch Page Directory (CR3) if different
         // This is crucial for process isolation (Step 4.3 Fork)
         if (processes[current_pid].pd != processes[prev_pid].pd) {
@@ -277,6 +297,10 @@ extern uint32_t elf_load(char *filename);
 extern void memset(void *dest, int val, int len);
 
 int sys_execve(char *filename, char **argv, char **envp, registers_t *regs) {
+    // Critical Section: Disable Interrupts to prevent preemption during ELF load
+    // The ATA Driver is Polling-based, so it works fine with interrupts disabled.
+    __asm__ volatile("cli");
+    
     // 1. Load the ELF file
     // Note: elf_load writes directly into the current Page Directory's User Space (0x400000)
     // It assumes the memory is already mapped (which it is, 4MB-8MB).
@@ -307,6 +331,9 @@ int sys_execve(char *filename, char **argv, char **envp, registers_t *regs) {
     // EAX will be overwritten by the return value of this function (0), 
     // effectively passing 0 to the new program.
     
+    // End Critical Section
+    __asm__ volatile("sti");
+
     return 0; // Success
 }
 
@@ -315,19 +342,27 @@ int sys_execve(char *filename, char **argv, char **envp, registers_t *regs) {
 // -------------------------------------------------
 
 void sys_exit(int code) {
-    // 1. Set Exit Code
+    // Critical Section
+    __asm__ volatile("cli");
+
+    // 1. Record Exit Code
     processes[current_pid].exit_code = code;
     
     // 2. Set State to TERMINATED (Zombie)
-    // The process will remain in memory until reaped by parent via wait().
-    //processes[current_pid].state = PROCESS_TERMINATED;
+    // The process will remain in memory
+    // 3. Mark as Zombie (Parent needs to wait())
+    processes[current_pid].state = PROCESS_TERMINATED;
+    
     print_string("\n[Kernel] Process ");
     print_dec(current_pid);
     print_string(" exited with code ");
     print_dec(code);
     print_string(".\n");
-    while(1);
-    // 3. Force Schedule (Never returns)
+    
+    // End Critical Section (Though we won't return, schedule() re-enables via task switch)
+    __asm__ volatile("sti"); 
+
+    // 4. Yield CPU directly (Never returns)
     schedule();
     
     // Should unreachable
@@ -373,5 +408,26 @@ int sys_wait(int *status) {
         // But for simplicity: busy wait with yield.
         __asm__ volatile("sti; hlt"); // Wait for interrupt (timer) to reschedule
         // schedule() is called by timer ISR
+    }
+}
+
+// PID 1 Entry Point: Launches the Shell
+void launch_shell() {
+    extern uint32_t elf_load(char *filename);
+    
+    print_string("[Kernel] Launching User Shell (PID 1)...\n");
+    
+    // 1. Load Shell
+    // Note: This loads code into 0x400000. 
+    // Since PID 1 has its own Page Directory (cloned from kernel), 
+    // this write goes to PID 1's physical memory, not PID 0's.
+    uint32_t shell_entry = elf_load("shell.elf");
+    
+    if (shell_entry) {
+        // 2. Jump to User Mode
+        enter_user_mode(shell_entry);
+    } else {
+        print_string("[Kernel] Error: Could not load shell.elf\n");
+        while(1);
     }
 }

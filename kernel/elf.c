@@ -16,12 +16,15 @@ void my_memset(char *dest, char val, int nbytes) {
 }
 
 uint32_t elf_load(char *filename) {
+    //while(1);
     print_string("[ELF] Loading file: ");
     print_string(filename);
     print_string("\n");
     sfs_inode inode;
     if (!fs_find_file(filename, &inode)) {
+        //while(1);
         print_string("[ELF] Error: File not found.\n");
+        //while(1);
         return 0;
     }
     // Allocate buffer for the entire file

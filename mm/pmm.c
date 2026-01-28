@@ -113,16 +113,26 @@ void pmm_init(uint32_t kernel_end) {
     print_dec(max_ram / 1024 / 1024);
     print_string(" MB\n");
 
-    // Mark Kernel Region as USED
-    // Kernel starts at 0x100000, ends at kernel_end
-    // Also protect 0-1MB (IVT, BIOS, Video, etc are often here) for simplicity
-    uint32_t kernel_end_block = (kernel_end + PMM_BLOCK_SIZE - 1) / PMM_BLOCK_SIZE;
+    // Mark Kernel Region + VMM Static Regions as USED
+    // VMM maps:
+    // 0-4MB: Kernel Code/Data
+    // 4-8MB: User Text
+    // 8-12MB: Kernel Heap
+    // 12-16MB: User Stack / PMM Frames
+    // To prevent PMM from handing out these frames (which would cause aliasing/corruption),
+    // we must reserve EVERYTHING up to 16MB.
+    
+    uint32_t reserved_end = 16 * 1024 * 1024; // 16MB
+    if (reserved_end < kernel_end) reserved_end = kernel_end; // Safety
+    
+    uint32_t reserved_limit_block = (reserved_end + PMM_BLOCK_SIZE - 1) / PMM_BLOCK_SIZE;
 
-    // rotect 0x0 up to kernel_end
-    // Typically Low Memory (0-1MB) is messy, let's just reserve it all for now + Kernel
-    for (uint32_t i = 0; i < kernel_end_block; i++) {
+    // Protect 0x0 up to 16MB
+    for (uint32_t i = 0; i < reserved_limit_block; i++) {
         mmap_set(i);
     }
+    
+    print_string("PMM: Reserved Low Memory up to 16MB (Static VMM Region).\n");
     
     // Recalculate used blocks count
     used_memory_blocks = 0;

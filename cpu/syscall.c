@@ -78,7 +78,7 @@ void syscall_handler(registers_t *regs) {
             break;
         case 4: // FORK
             // EAX = sys_fork(regs)
-            //while(1);
+            // while(1);
             regs->eax = sys_fork(regs);
             //while(1);
             break;

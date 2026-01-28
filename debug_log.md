@@ -89,39 +89,71 @@ To isolate the exact line causing the crash, I inserted infinite loops (`while(1
     - Changed IDT Gate `128` (Syscall) to `0xEF` (**Trap Gate**).
     - **Effect:** Trap Gates do *not* clear interrupts on entry. This allows hardware interrupts to preempt the syscall handler, updating the keyboard buffer and breaking the `while` loop.
 
----
+## [2026-01-26] sys_fork Implementation Issues
 
-# Debugging Log: `sys_fork` Implementation Issues
+### Issue 1: Race Condition in Process State Update
+**Symptom:**  
+Executing `exec hello.elf` caused the screen to flicker rapidly and return to the shell immediately, indicating a crash or reset.
+**Investigation:**  
+Used binary search with `while(1)` loops to pinpoint the crash location. Discovered that the crash occurred immediately after `processes[child_pid].state = PROCESS_READY;`.  
+Verified that `child_pid` was valid.
+**Root Cause:**  
+The process state was set to `PROCESS_READY` *before* the child process's kernel stack (Trap Frame) was fully initialized.  
+The Timer Interrupt fired immediately after this line, causing the scheduler to pick the uninitialized child process. The CPU then attempted to switch context using garbage stack values, leading to a crash.
+**Fix:**  
+Moved the `PROCESS_READY` assignment to the very end of `sys_fork`, ensuring the child process is fully initialized before becoming eligible for scheduling.
 
-**Date:** 2026-01-26
-**Module:** Kernel Process Management (`kernel/process.c`)
-**Severity:** Critical (Kernel Panic / System Reset)
+### Issue 2: Implicit memcpy in Struct Assignment
+**Symptom:**  
+After fixing Issue 1, the kernel crashed again at a different location.
+**Investigation:**  
+Again used `while(1)` binary search and identified the line `*child_regs = *regs;` as the culprit.
+**Root Cause:**  
+In C, assigning one struct to another (e.g., `*child_regs = *regs`) often triggers an implicit call to `memcpy`.  
+Since the kernel is compiled in **freestanding mode** (`-ffreestanding`), the standard library `memcpy` is not linked/available, causing a runtime error (undefined symbol or jump to invalid address).
+**Fix:**  
+Replaced the struct assignment with a manual loop to copy data element by element:
+```c
+uint32_t *src_ptr = (uint32_t*)regs;
+uint32_t *dst_ptr = (uint32_t*)child_regs;
+for (int i = 0; i < sizeof(registers_t) / 4; i++) {
+    dst_ptr[i] = src_ptr[i];
+}
+```
+This avoids reliance on external library functions.
 
-## 1. Issue: Race Condition in Process State Update
-- **Symptom:** Executing `exec hello.elf` caused the screen to flicker rapidly and return to the shell immediately, indicating a sudden reset or crash.
-- **Investigation:**
-    - Used binary search with `while(1)` loops to isolate the crash point.
-    - Identified that the crash happened immediately after `processes[child_pid].state = PROCESS_READY;`.
-    - Realized that the Timer Interrupt fired right after this line.
-- **Root Cause:**
-    - The process state was set to `PROCESS_READY` *before* the child process's kernel stack (Trap Frame) was fully initialized.
-    - The scheduler picked the uninitialized child process, leading to a context switch with invalid stack values.
-- **Resolution:**
-    - Moved the `PROCESS_READY` assignment to the very end of `sys_fork`, ensuring initialization is complete before scheduling.
+## [2026-01-26 ~ 2026-01-27] Triple Fault & PMM-VMM Aliasing Analysis
 
-## 2. Issue: Implicit memcpy in Struct Assignment
-- **Symptom:** After fixing the race condition, the kernel crashed at a later point in `sys_fork`.
-- **Investigation:**
-    - Used binary search again and identified `*child_regs = *regs;` as the cause.
-- **Root Cause:**
-    - Struct assignment in C (`=`) implicitly calls `memcpy`.
-    - Since the kernel is compiled in `freestanding` mode, `memcpy` is not linked, causing a jump to an invalid address.
-- **Resolution:**
-    - Replaced struct assignment with a manual member-wise copy using a loop:
-    ```c
-    uint32_t *src_ptr = (uint32_t*)regs;
-    uint32_t *dst_ptr = (uint32_t*)child_regs;
-    for (int i = 0; i < sizeof(registers_t) / 4; i++) {
-        dst_ptr[i] = src_ptr[i];
-    }
-    ```
+### Issue 1: Reboot upon `hello.elf` Return (ESP Issue)
+**Symptom:**  
+`hello.elf` executed prints successfully but the system rebooted when returning to the shell (lost output).
+**Investigation:**  
+Tracing revealed that the shell ran as PID 0 (Kernel Task role), so `init_multitasking` did not initialize its `esp`. Upon returning from syscall, the context switch loaded an invalid ESP, causing a Double/Triple Fault.
+**Fix:**  
+Modified `create_task()` to explicitly initialize the User Shell as PID 1 with a valid stack. PID 0 was delegated to be the Kernel Idle Task.
+
+### Issue 2: Persistent Triple Fault (CR2=0x10xxx)
+**Symptom:**  
+Even after fixing the ESP issue, executing `exec` caused a Triple Fault (System Reboot).
+**Investigation:**  
+1.  **QEMU Debugging:** Used `-d int,cpu_reset -no-reboot` to capture the crash state.
+    ![Triple Fault Log (QEMU)](triple_fault_log.jpg)
+2.  **State Analysis:** 
+    - `CR3`: Pointed to the NEW Page Directory (Child Process).
+    - `CR2`: `0x10xxxx` (Kernel Code Access).
+    - **Meaning:** The Child Process seemingly lost access to the Kernel Code region (0-4MB mapping vanished), causing a Page Fault that escalated to Triple Fault.
+3.  **Debug Prints:** Inserted code in `vmm_clone_directory` to print `Src[0]` (Kernel Dir) vs `Dst[0]` (Child Dir).
+    - `Src[0]`: Valid (`0x118xxx`).
+    - `Dst[0]`: Valid (`0x118xxx`). **(Confusing: Logic seemed correct)**.
+    - **Clue:** The `Clone Dir` Address itself was `0x523000` (~5MB).
+
+**Root Cause: PMM/VMM Aliasing**  
+The VMM initialization (`vmm_init`) statically mapped physical addresses **4MB-8MB** for User Text usage. However, it *did not allocate* these frames from the PMM.
+- **PMM:** Believed 5MB was "Free".
+- **VMM:** Believed 5MB was "User Space".
+- **Conflict:** PMM allocated 5MB (`0x523000`) for the **Page Directory**. Later, operations targeting the User Space (4MB+) overwrote this memory region, corrupting the Page Directory structure (specifically erasing the Kernel Mappings at Index 0).
+
+**Resolution:**
+1.  **PMM Reservation:** Updated `pmm_init` to reserve **0-16MB** as "Used". This forces PMM to allocate frames only from high memory (16MB+), avoiding conflict with VMM's static low-memory maps.
+2.  **Identity Mapping Extension:** Updated `vmm_init` to Identity Map up to 128MB. This ensures the Kernel can physically copy to high-memory frames (e.g., `0x1000000`) without Page Faults.
+3.  **Outcome:** Triple Fault resolved. `fork()` and `exec()` now function stably.

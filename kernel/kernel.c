@@ -392,14 +392,6 @@ void main()
         print_string("Freed memory.\n");
     }
 
-    // Initialize Multitasking
-    init_multitasking();
-    
-    // Create Test Tasks (Optional now, can comment out if testing Shell)
-    // print_string("Creating Tasks...\n");
-    // create_task(&task_a); 
-    // create_task(&task_b); 
-
     // --- ATA Driver Test ---
     print_string("Testing ATA Driver...\n");
     uint8_t sect[512];
@@ -411,37 +403,24 @@ void main()
     print_string("\n");
 
     fs_init();
+    
+    // Initialize Multitasking (Creates PID 0)
+    init_multitasking();
+    
+    // --- Create PID 1: Shell Task ---
+    // Instead of transforming the Kernel (PID 0) into Shell via enter_user_mode,
+    // we spawn a clean new task (PID 1) to be the Shell.
+    // PID 0 will remain as the Idle Process.
+    create_task(launch_shell);
 
-    // Commented out user mode switch for now to use the Shell
-    
-    /*
-    extern void switch_to_user_mode();
-    print_string("\nSwitching to User Mode (Ring 3)...\n");
-    switch_to_user_mode();
-    */
-    // print_string("This executes in User Mode (if visible)!\n"); // Should never run if infinite loop in ASM
-
-    extern uint32_t elf_load(char *filename);
-    extern void enter_user_mode(uint32_t entry_point);
-
-    
-    print_string("\n[Kernel] Launching User Shell (shell.elf)...\n");
-    
-    // 1. Load Shell
-    uint32_t shell_entry = elf_load("shell.elf");
-    if (shell_entry) {
-        // 2. Jump to User Mode
-        enter_user_mode(shell_entry);
-    } else {
-        print_string("[Kernel] Error: Could not load shell.elf\n");
-    }
-    
-    
-    // Enable Interrupts to start Timer (which drives Scheduler)
+    // --- Enable Interrupts ---
+    // This starts the Timer (IRQ 0), which will trigger the Scheduler.
+    // The Scheduler will then pick PID 1 (launch_shell) to run.
     __asm__ volatile("sti");
     
-    // We enter an infinite loop here.
-    // The Scheduler will preempt this loop and switch to task_a / task_b.
+    // --- PID 0: Idle Loop ---
+    // The Kernel Main Thread becomes the Idle Process.
+    // It runs whenever no other task is ready.
     while(1) {
         // Halt to save power, resume on interrupt
         __asm__ volatile("hlt");

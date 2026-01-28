@@ -3,6 +3,7 @@
 
 // External helper for printing
 extern void print_string(char* str);
+extern void print_hex(uint32_t num);
 
 // The Kernel's Page Directory
 page_directory* kernel_directory = 0;
@@ -108,20 +109,22 @@ void vmm_init() {
     // --- USER STACK MAPPING (15MB - 16MB) ---
     // We will use Directory Index 3 (12MB - 16MB)
     // 0xF00000 is at 15MB.
-    // 15MB is inside the 4MB chunk of Index 3. (Index 3 covers 12MB to 16MB).
     
     page_table* user_stack_table = (page_table*)pmm_alloc_block();
     if (!user_stack_table) {
          print_string("VMM Error: Failed to allocate User Stack Table!\n");
          return;
     }
+
+    // [Fix] Map the entire 12MB-16MB region as Identity Kernel by default.
+    // This allows copy_page_physical to access frames allocated in this range (like 0xC00000).
+    for (int i = 0; i < PAGES_PER_TABLE; i++) {
+        uint32_t frame = (3 * 1024 * PAGE_SIZE) + (i * PAGE_SIZE); // Base 12MB
+        user_stack_table->m_entries[i] = frame | I86_PTE_PRESENT | I86_PTE_WRITABLE; // Kernel R/W
+    }
     
+    // Now OVERLAY the User Stack at 15MB (0xF00000)
     // 0xF00000 corresponds to the 768th entry in the Page Table of Index 3. 
-    // ((15 * 1024 * 1024) % (4 * 1024 * 1024)) / 4096 = (3MB offset) / 4KB = 3072KB / 4KB = 768.
-    // Frame: 0xF00000.
-    
-    // Map 16KB for User Stack (4 Pages)
-    // 0xF00000 to 0xF04000
     int user_stack_idx = 768; // 3MB offset into 3rd Page Table (15MB mark)
     
     for (int i = 0; i < 4; i++) {
@@ -130,10 +133,28 @@ void vmm_init() {
     }
     
     // Register in Directory Index 3 (12-16MB)
+    // PTE must be USER accessible to allow access to the User Stack pages inside it.
     kernel_directory->m_entries[3] = (uint32_t)user_stack_table | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
-    // Note: PDE must be USER accessible too!
 
-    print_string("VMM: Mapped User Stack at 0xF00000.\n");
+    print_string("VMM: Mapped User Stack at 0xF00000 (Identity 12-16MB included).\n");
+
+    // --- IDENTITY MAPPING FOR REMAINING RAM (16MB - 128MB) ---
+    // PMM manages up to 128MB. We must map this entire range so the Kernel can access
+    // any physical frame returned by PMM (e.g., for copy_page_physical).
+    // Indexes: 4 (16MB) to 31 (128MB)
+    
+    for (int i = 4; i < 32; i++) {
+        page_table* identity_table = (page_table*)pmm_alloc_block();
+        if (!identity_table) break; // Should not happen early on
+        
+        for (int j = 0; j < PAGES_PER_TABLE; j++) {
+            uint32_t frame = (i * 1024 * PAGE_SIZE) + (j * PAGE_SIZE);
+            identity_table->m_entries[j] = frame | I86_PTE_PRESENT | I86_PTE_WRITABLE; // Kernel R/W
+        }
+        
+        kernel_directory->m_entries[i] = (uint32_t)identity_table | I86_PTE_PRESENT | I86_PTE_WRITABLE;
+    }
+    print_string("VMM: Identity Mapped up to 128MB.\n");
 }
 
 // Helper to copy content of one physical frame to another
@@ -156,13 +177,35 @@ void copy_page_physical(uint32_t src, uint32_t dest) {
 page_directory* vmm_clone_directory(page_directory* src) {
     // 1. Allocate new Page Directory
     page_directory* dir = (page_directory*)pmm_alloc_block();
+    // print_hex((uint32_t)dir);
     if (!dir) return 0;
 
     // [Safety] Zero initialization to prevent Triple Faults caused by garbage data
     memset(dir, 0, sizeof(page_directory));
 
+    // [CRITICAL] Explicitly Map Kernel Space (0-4MB and 8-12MB)
+    // We treat 'kernel_directory' as the absolute source of truth for kernel mappings.
+    // This prevents any 'garbage' from the parent overriding the kernel.
+    // [CRITICAL] Explicitly Map Kernel Space (0-4MB and 8-12MB)
+    // We treat 'kernel_directory' as the absolute source of truth for kernel mappings.
+    // This prevents any 'garbage' from the parent overriding the kernel.
+    dir->m_entries[0] = kernel_directory->m_entries[0];
+    dir->m_entries[2] = kernel_directory->m_entries[2];
+    
+    // [DEBUG] Diagnosing Triple Fault
+    print_string("DEBUG: Clone Dir: ");
+    print_hex((uint32_t)dir);
+    print_string(" Src[0]: ");
+    print_hex(kernel_directory->m_entries[0]);
+    print_string(" Dst[0]: ");
+    print_hex(dir->m_entries[0]);
+    print_string("\n");
+
     // 2. Iterate over all 1024 Page Tables
     for (int i = 0; i < TABLES_PER_DIRECTORY; i++) {
+        
+        // Skip Kernel Entries we already handled above
+        if (i == 0 || i == 2) continue;
         
         // Skip empty entries
         if (!(src->m_entries[i] & I86_PTE_PRESENT)) continue;
@@ -176,6 +219,7 @@ page_directory* vmm_clone_directory(page_directory* src) {
         if (i == 1 || i == 3) {
             
             // A. Allocate new Page Table
+            // TODO: Implement cleanup on failure
             page_table* dst_table = (page_table*)pmm_alloc_block();
             if (!dst_table) return 0;
             
@@ -190,9 +234,16 @@ page_directory* vmm_clone_directory(page_directory* src) {
             uint32_t flags = src->m_entries[i] & 0x0FFF;
             dir->m_entries[i] = (uint32_t)dst_table | flags;
 
-            // C. Deep Copy Pages inside the table
+            // C. Iterate Pages inside the table
             for (int j = 0; j < PAGES_PER_TABLE; j++) {
-                if (src_table->m_entries[j] & I86_PTE_PRESENT) {
+                // If page is not present, skip
+                if (!(src_table->m_entries[j] & I86_PTE_PRESENT)) continue;
+
+                // [Smart Clone]
+                // If it's a USER page (Stack), we must Deep Copy it (Private to process).
+                // If it's a KERNEL page (Identity Map), we must Share it (Global).
+                if (src_table->m_entries[j] & I86_PTE_USER) {
+                    // --- Deep Copy (User Stack) ---
                     
                     // 1. Source Physical Address
                     uint32_t phys_src = src_table->m_entries[j] & 0xFFFFF000;
@@ -202,13 +253,15 @@ page_directory* vmm_clone_directory(page_directory* src) {
                     if (!phys_dst) return 0; 
 
                     // 3. Copy Data (Phys -> Phys)
-                    // WARNING: This assumes phys_dst is reachable via Identity Mapping (0-4MB or similar).
-                    // If PMM returns a high address outside mapped regions, this WILL Page Fault.
                     copy_page_physical(phys_src, phys_dst);
 
                     // 4. Map into Child Table
                     uint32_t pte_flags = src_table->m_entries[j] & 0x0FFF;
                     dst_table->m_entries[j] = phys_dst | pte_flags;
+                } else {
+                    // --- Share (Kernel Identity Map) ---
+                    // Just copy the entry. Point to the SAME physical frame.
+                    dst_table->m_entries[j] = src_table->m_entries[j];
                 }
             }
         }
@@ -216,10 +269,9 @@ page_directory* vmm_clone_directory(page_directory* src) {
         // [Shared] Kernel Space: Index 0 (Kernel Code), Index 2 (Kernel Heap)
         // Everything else is shared by default to keep kernel state synchronized.
         else {
-            dir->m_entries[i] = src->m_entries[i];
+            dir->m_entries[i] = kernel_directory->m_entries[i];
         }
     }
-
     return dir;
 }
 

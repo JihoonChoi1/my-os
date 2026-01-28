@@ -50,11 +50,12 @@ void main() {
             if (buffer[0] == 'e' && buffer[1] == 'x' && buffer[2] == 'e' && buffer[3] == 'c' && buffer[4] == ' ') {
                  char *program = buffer + 5;
                  //while(1);
-                 int pid = fork();
                  //while(1);
+                 int pid = fork();
+                 // while(1);
                  if (pid == 0) {
                      // Child
-                     print_dec(pid);
+                     //print_dec(pid);
                      print("Executing: ");
                      print(program);
                      //while(1);
