@@ -1,8 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
-#include "fs.h"
+#include <stdio.h>  
+#include <stdlib.h> 
+#include <string.h> 
+#include <stdint.h> 
+#include "fs.h"     // The header file containing our custom file system structures (sfs_inode, sfs_superblock).
 
 #define DISK_SIZE (10 * 1024 * 1024) // 10 MB Disk Image
 
@@ -37,8 +37,6 @@ int main(int argc, char *argv[])
     fseek(disk_fp, 0, SEEK_SET);
 
     // Write Boot Sector (Sector 0)
-    // For now, we use the existing boot.bin as a placeholder MBR.
-    // Later, this boot.bin needs to be updated to load Stage 2.
     FILE *boot_fp = fopen("boot.bin", "rb");
     if (!boot_fp)
     {

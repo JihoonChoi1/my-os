@@ -1,91 +1,108 @@
-[org 0x1000]
+[org 0x1000]    ; Tell the assembler that the code will be loaded at address 0x7c00
+                ; This ensures all labels are calculated with 0x7c00 as the base.
 
 start:
-    ; Save Boot Drive ID
-    mov [BOOT_DRIVE], dl
+    mov [BOOT_DRIVE], dl    ; We save the boot drive number (dl) inherited from the MBR.
 
-    ; Print start message
-    mov si, msg_stage2
-    call print_string
+    mov si, msg_stage2      ; Set SI to the address of the message string.
+    call print_string       ; Call the print_string function.
 
     ; Enable A20 Line
-    in al, 0x92
-    or al, 2
-    out 0x92, al
+
+    ;"in destination, port": Read data from the hardware port into a register.
+    in al, 0x92     ; Call port 0x92 (System Control Port A) and ask "What is your current status?
+                    ; Save the answer in al
+    or al, 2        ; do or operation with 0000 0010 (2) to set the 2nd bit (A20 enable)
+    out 0x92, al    ; Write the modified value back to Port 0x92, enabling the A20 line.
 
     ; Enter Unreal Mode
-    cli
-    lgdt [gdt_descriptor]
-    mov eax, cr0
-    or eax, 1
-    mov cr0, eax
-    jmp $+2
-    mov bx, 0x08
-    mov ds, bx
-    mov es, bx
-    mov eax, cr0
-    and al, 0xFE
-    mov cr0, eax
-    jmp $+2
-    xor ax, ax
-    mov ds, ax
-    mov es, ax
-    sti
+    cli                     ; Disable interrupts
+    lgdt [gdt_descriptor]   ; Load the Global Descriptor Table (GDT) into the CPU's GDTR register.
+    mov eax, cr0    ; Move the value of the Control Register 0 (CR0) into the EAX register.
+    or eax, 1       ; Set the 1st bit (PE: Protection Enable) of EAX.
+    mov cr0, eax    ; Write the modified value back to CR0, enabling protected mode.
+    jmp $+2         ; Jump to the next instruction (a short jump to itself).
+                    ; A jump instruction forces the CPU to discard its pre-fetched 
+                    ; instructions ("Flush Pipeline") and fetch them again under the new 32-bit rules. 
+                    ; $+2 just jumps to the very next instruction.
+    mov bx, 0x10    ; Set BX to 0x10 (the GDT data segment selector).
+    mov ds, bx      ; Set the Data Segment (DS) register to 0x10.
+    mov es, bx      ; Set the Extra Segment (ES) register to 0x10.
+    mov eax, cr0    ; Move the value of the Control Register 0 (CR0) into the EAX register.
+    and al, 0xFE    ; Clear the 1st bit (PE: Protection Enable) of EAX.
+    mov cr0, eax    ; Write the modified value back to CR0, disabling protected mode.
+                    ; CPU does not clear the hidden cache when switching back. 
+                    ; The ds register still "thinks" it has a 4GB limit, even though we are in Real Mode. 
+                    ; This allows us to use 32-bit offsets like [ds:0x100000] later.
+    jmp $+2         ; Jump to the next instruction. Again for pipeline flush.
+    xor ax, ax      ; Clear the AX register.
+    mov ds, ax      ; Set the Data Segment (DS) register to 0x00.
+                    ; The CPU interprets the value in ds differently depending on the mode.
+                    ; Protected Mode: ds is a Selector (Table Index). 0x08 means "GDT Entry #1". 
+                    ;                 Base address comes from the GDT (which is 0).
+                    ; Real Mode: ds is a Segment Base. 0x0008 means "Memory Address 0x00080"(Multiplied by 16 for accessing 20-bit address).
+    mov es, ax      ; Set the Extra Segment (ES) register to 0x00.
+    sti             ; Enable interrupts
 
     mov si, msg_unreal
     call print_string
 
     ; Read Superblock (LBA 17) -> 0x2000
-    mov si, dap
-    mov word [dap.lba_low], 17
-    mov word [dap.offset], 0x2000
-    mov dl, [BOOT_DRIVE]
-    mov ah, 0x42
-    int 0x13
-    jc disk_error
+    mov si, dap                     ; Set si to point to the dap structure we defined at the bottom of the file.        
+    mov word [dap.lba_low], 17      ; Set Target Sector
+    mov word [dap.offset], 0x2000   ; Set Target Offset
+    mov dl, [BOOT_DRIVE]            ; Load the boot drive ID we saved earlier into dl
+    mov ah, 0x42                    ; Set command to 'Extended Read Sectors
+    int 0x13                        ; Trigger BIOS Interrupt!
+                                    ; BIOS reads the DAP at ds:si, goes to LBA 17, 
+                                    ; reads 1 sector (defined in DAP default), and writes it to 0x2000
+    jc disk_error                   ; If BIOS fails, it sets the Carry Flag (CF) to 1. 
+                                    ; We catch errors using jc (Jump if Carry).
 
     mov si, msg_read_sb
     call print_string
 
     ; Verify Magic
-    mov eax, [0x2000]
-    cmp eax, 0x12345678
-    jne magic_error
+    mov eax, [0x2000]   ; Load the magic number from 0x2000
+    cmp eax, 0x12345678 ; Compare it with the expected value
+    jne magic_error     ; If they are not equal, jump to magic_error
+
     mov si, msg_magic_ok
     call print_string
 
     ; Find "kernel.bin"
-    mov eax, [0x200C]
-    mov [inode_table_lba], eax
-
+    mov eax, [0x200C]             ; Read inode table location from superblock.
+                                  ; Expected value is 19. it reads 4 bytes since eax is 32-bit register.
+    mov [inode_table_lba], eax    
     mov si, dap
-    mov eax, [inode_table_lba]
-    mov [dap.lba_low], eax
-    mov word [dap.offset], 0x3000
-    mov dl, [BOOT_DRIVE]
-    mov ah, 0x42
-    int 0x13
-    jc disk_error
+    mov [dap.lba_low], eax        ; Set Target Sector to Inode Table LBA  
+    mov word [dap.offset], 0x3000 ; Set Destination to 0x3000
+    mov dl, [BOOT_DRIVE]          ; Load the boot drive ID we saved earlier into dl
+    mov ah, 0x42                  ; Set command to 'Extended Read Sectors
+    int 0x13                      ; Trigger BIOS Interrupt!
+    jc disk_error                 ; If BIOS fails, it sets the Carry Flag (CF) to 1. 
+                                  ; We catch errors using jc (Jump if Carry).
 
-    mov di, 0x3000
-    mov cx, 5
+    mov di, 0x3000                ; Set DI to 0x3000 (Inode Table)
+    mov cx, 5                     ; Set CX to 5 (Number of Inodes)
 .find_loop:
-    mov al, [di]
-    cmp al, 1
-    jne .next_inode
+    mov al, [di]                  ; Load 1st byte of inode (used flag) into AL
+    cmp al, 1                     ; Check if the inode is used
+    jne .next_inode               ; If not used, jump to .next_inode
 
     push di
     inc di
-    mov si, filename_target
-    call strcmp
-    pop di
-    
-    je .found_kernel
+    mov si, filename_target       ; Set SI to filename_target
+    call strcmp                   ; Compare filename_target with the name of the current inode
+    pop di    
+    je .found_kernel              ; If match (Zero Flag set), jump to success!
 
 .next_inode:
-    add di, 256    ; sizeof(sfs_inode) is now 256 bytes
-    loop .find_loop
-    jmp .kernel_not_found
+    add di, 256                   ; Move DI to the next inode (Size of inode = 256 bytes)
+    loop .find_loop               ; dec cx         
+                                  ; cmp cx, 0      
+                                  ; jne .find_loop   
+    jmp .kernel_not_found         ; If CX is 0, jump to .kernel_not_found
 
 .kernel_not_found:
     mov si, msg_kernel_not_found
@@ -96,8 +113,7 @@ start:
     mov si, msg_kernel_found
     call print_string
 
-    ; Save Inode Pointer because we need EDI for destination (and DI is lower 16-bit of EDI)
-    mov [inode_ptr], di
+    mov [inode_ptr], di          ; Save Inode Pointer because we need EDI for destination (and DI is lower 16-bit of EDI)
 
     ; -----------------------------------------------
     ; Load & Copy All Blocks (Loop)
@@ -111,65 +127,58 @@ start:
     cmp cx, 64          ; Max 64 blocks
     jge .copy_finished
 
-    ; Get Block Number from Inode
-    ; We must use the saved inode_ptr because DI is now corrupted by EDI usage
-    mov si, [inode_ptr]
+    mov si, [inode_ptr] ; Load address of the Kernel Inode
     
-    mov bx, cx
-    shl bx, 2           ; BX = CX * 4
-    add bx, 37          ; BX = 37 + (CX * 4) (Offset to blocks[i]: 1+32+4=37)
+    mov bx, cx          ; Move Loop Counter (Block Index) to BX
+    shl bx, 2           ; Multiply by 4 (Since each block ID is 4 bytes: uint32_t)
+    add bx, 37          ; Add Offset to `blocks` array
+                        ; Offset Math:
+                        ; 1 byte (used)
+                        ; + 32 bytes (filename)
+                        ; + 4 bytes (size)
+                        ; = 37 bytes.
+    add si, bx          ; SI = Address of inode.blocks[cx]
+    mov eax, [si]       ; Read the Sector Number (LBA) from memory
     
-    add si, bx          ; SI = Inode Addr + Offset
-    mov eax, [si]       ; Get sector number
-    
-    ; Check for End of File (Block 0 means unused)
+    ; Check for End of File (Block 0 means unused/end)
     cmp eax, 0
     je .copy_finished
 
     ; Read Block to Temp Buffer (0x8000)
-    push cx             ; Save Loop Counter (CX)
+    push cx             ; Save Loop Counter (CX) - BIOS destroys registers
     push edi            ; Save Dest Address (EDI)
     
     ; Re-initialize DAP every time just to be safe
     mov si, dap
-    mov byte [dap], 0x10      ; Size = 16
+    mov byte [dap], 0x10      ; Packet Size = 16 bytes (Size of DAP)
     mov byte [dap+1], 0       ; Reserved = 0
-    mov word [dap+2], 1       ; Sectors = 1
-    mov word [dap.offset], 0x8000 ; Offset
-    mov word [dap.segment], 0     ; Segment
-    mov [dap.lba_low], eax    ; LBA Low
-    mov dword [dap.lba_high], 0 ; LBA High
+    mov word [dap+2], 1       ; Sector Count = 1 (Read 512 bytes)
+    mov word [dap.offset], 0x8000 ; Set Destination to 0x8000
+    mov word [dap.segment], 0     ; Buffer Segment (0x0000)
+    mov [dap.lba_low], eax    ; LBA Low (The sector we calculated above)
+    mov dword [dap.lba_high], 0 ; LBA High (0)
 
-    mov dl, [BOOT_DRIVE]
-    mov ah, 0x42
-    int 0x13
-    jc disk_error
+    mov dl, [BOOT_DRIVE]    ; Drive Number
+    mov ah, 0x42            ; Extended Read
+    int 0x13                ; Call BIOS
+    jc disk_error           ; Check for error
     
-    pop edi             ; Restore Dest Address
-    pop cx              ; Restore Loop Counter
-
-    ; Copy from 0x8000 to High Memory (Unreal Mode)
-    push cx             ; Save Loop Counter
-    push esi            ; Save SI
-    
+    pop edi             ; Restore Dest Address (0x100000)
     mov cx, 512         ; Copy 512 bytes
     mov esi, 0x8000     ; Source
     
-    ; dest is already in edi
-    
 .internal_copy_loop:
-    mov al, [esi]
-    mov [edi], al       ; 32-bit addr write (Unreal Mode magic)
-    inc esi
-    inc edi
-    dec cx
+    mov al, [esi]       ; Read 1 byte from Low Memory
+    mov [edi], al       ; Write 1 byte to High Memory (Possible due to Unreal Mode!)
+    inc esi             ; Next Source Address
+     inc edi            ; Next Destination Address
+    dec cx              ; Decrement Loop Counter
     jnz .internal_copy_loop
     
-    pop esi             ; Restore SI
     pop cx              ; Restore Loop Counter
 
     ; Next Block
-    inc cx
+    inc cx              ; Increment Block Index
     jmp .block_loop
 
 .copy_finished:
@@ -182,7 +191,7 @@ start:
     mov si, msg_detect_mem
     call print_string
 
-    mov di, 0x8004          ; Store map entries starting at 0x8004
+    mov di, 0x8004           ; Location to store the memory map
     xor ebx, ebx            ; EBX must be 0 to start
     xor bp, bp              ; Keep entry count in BP
     mov edx, 0x0534D4150    ; Place "SMAP" into edx
