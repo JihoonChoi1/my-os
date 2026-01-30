@@ -3,3 +3,4 @@
 *.img
 mkfs
 .DS_Store
+known_issues.txt

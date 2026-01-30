@@ -191,20 +191,27 @@ start:
     mov si, msg_detect_mem
     call print_string
 
-    mov di, 0x8004           ; Location to store the memory map
-    xor ebx, ebx            ; EBX must be 0 to start
-    xor bp, bp              ; Keep entry count in BP
-    mov edx, 0x0534D4150    ; Place "SMAP" into edx
-    mov eax, 0xe820
-    mov [es:di + 20], dword 1 ; Force a valid ACPI 3.X entry
-    mov ecx, 24             ; Ask for 24 bytes
+    mov di, 0x8004          ; Location to store the memory map
+                            ; Why 0x8004? Because we reserve 0x8000-0x8003 (4 bytes) to store the "Entry Count" later.
+    xor ebx, ebx            ; EBX is a 'cursor' for the memory list.
+                            ; Must be 0 to start from the beginning. BIOS will update it
+                            ; to tell us which entry to read next.
+    xor bp, bp              ; Entry Counter: Initialize BP to 0. We will count valid entries here.
+    mov edx, 0x0534D4150    ; Signature: Place the text 'SMAP' into EDX.
+                            ; BIOS requires this signature to verify we are asking for the system map.
+    mov eax, 0xe820         ; Function ID: 0xE820 is the BIOS code for "Query System Address Map".
+    mov [es:di + 20], dword 1 ; Pre-set the 'valid' bit to 1. If an older BIOS only fills 
+                            ; 20 bytes, this '1' remains to ensure we don't ignore the entry.
+    mov ecx, 24             ; Ask for the full 24-byte ACPI 3.0 entry.
     int 0x15
     jc .e820_failed         ; Carry set on first call means unsupported
 
     mov edx, 0x0534D4150    ; Some BIOS trash EDX
     cmp eax, edx            ; on success, eax must be 'SMAP'
     jne .e820_failed
-    test ebx, ebx           ; If EBX=0, list is empty (useless)
+    test ebx, ebx           ; Perform AND on EBX to check if zero. If EBX is 0 after 
+                            ; the FIRST call, it means the list only has 1 entry 
+                            ; (very unlikely/invalid), so we treat it as an error.
     je .e820_failed
     jmp .e820_entry_loop
 
@@ -212,14 +219,16 @@ start:
     inc bp                  ; Got a valid entry
     add di, 24              ; Move to next entry slot
     
-    test ebx, ebx           ; If EBX=0, we are done
+    test ebx, ebx           ; Exit Method A: BIOS signals the end by setting EBX to 0 
+                            ; after the last valid entry is provided.
     je .e820_done
 
     mov eax, 0xe820
     mov [es:di + 20], dword 1
     mov ecx, 24
     int 0x15
-    jc .e820_done           ; Carry set means end of list usually
+    jc .e820_done           ; Exit Method B: Some BIOS signal the end by setting the 
+                            ; Carry Flag on the call AFTER the last valid entry.
     mov edx, 0x0534D4150    ; Repair EDX
     jmp .e820_entry_loop
 
@@ -244,7 +253,10 @@ start:
     or eax, 1               ; Set PE bit
     mov cr0, eax
 
-    jmp CODE_SEG:init_pm    ; Far jump to flush pipeline
+    jmp CODE_SEG:init_pm    ; The "Far Jump" to enter Protected Mode:
+                            ; 1. Updates CS register with CODE_SEG (GDT selector).
+                            ; 2. Flushes the 16-bit pipeline (pre-fetched instructions).
+                            ; 3. Tells CPU to start decoding in 32-bit mode.
 
     jmp $
 
@@ -261,11 +273,14 @@ init_pm:
     mov fs, ax
     mov gs, ax
 
-    ; Setup Stack (at top of free memory, e.g., 0x90000)
+    ; Setup Stack: 0x90000 is used as a conventional "safe" spot. 
+    ; It's near the end of the 640KB base memory and usually free in RAM.
+    ; NOTE: This is hardcoded; ideally, should find a free region by
+    ; dynamically using the E820 memory map we just detected.
     mov ebp, 0x90000
     mov esp, ebp
 
-    ; JUMP TO KERNEL! (0x100000)
+    ; Jump to kernel (0x100000)
     call 0x100000
 
     jmp $
