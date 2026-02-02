@@ -273,12 +273,68 @@ init_pm:
     mov fs, ax
     mov gs, ax
 
-    ; Setup Stack: 0x90000 is used as a conventional "safe" spot. 
-    ; It's near the end of the 640KB base memory and usually free in RAM.
-    ; NOTE: This is hardcoded; ideally, should find a free region by
-    ; dynamically using the E820 memory map we just detected.
-    mov ebp, 0x90000
-    mov esp, ebp
+    ; --- Dynamic Stack Setup (Phase 2) ---
+    ; Goal: Find the end of the largest usable memory block from E820 map
+    ; and set ESP to it. This avoids hardcoding 0x90000.
+    
+    mov esi, 0x8004         ; Buffer where E820 map is stored
+    mov cx, [0x8000]        ; Number of entries
+    xor edx, edx            ; Max Address found so far (init 0)
+    
+find_stack_loop:
+    cmp cx, 0
+    je set_stack_pointer    ; No more entries? Done.
+    
+    ; Entry Structure:
+    ; Offset 0: Base Low (4 bytes)
+    ; Offset 4: Base High (4 bytes) - Ignored in 32-bit mode
+    ; Offset 8: Length Low (4 bytes)
+    ; Offset 12: Length High (4 bytes) 
+    ; Offset 16: Type (4 bytes) - 1 = Usable
+    
+    mov eax, [esi + 16]     ; Load Type
+    cmp eax, 1              ; Is it Usable RAM?
+    jne next_entry
+    
+    ; Check if Base High is 0 (We only support < 4GB in 32-bit Protected Mode)
+    mov eax, [esi + 4]
+    cmp eax, 0
+    jne next_entry
+    
+    ; Calculate End Address = Base + Length
+    mov eax, [esi]          ; Base Low
+    add eax, [esi + 8]      ; Length Low
+    
+    ; We want the HIGHEST possible address for the stack (grows down)
+    cmp eax, edx
+    jbe next_entry          ; If current end <= max so far, skip, jbe = jump if below or equal
+    
+    mov edx, eax            ; Update Max Address
+
+next_entry:
+    add esi, 20             ; Move to next entry (20 bytes size) (Could be 24 for ACPI 3.0, but we use 20 here)
+    dec cx
+    jmp find_stack_loop
+
+set_stack_pointer:
+    ; Safety Check: Did we find anything?
+    cmp edx, 0x00100000     ; Is it at least above 1MB?
+    ja stack_found          ; ja = jump if above
+    
+    ; Fallback if no good RAM found (Safety net)
+    mov edx, 0x90000        ; Fallback to old safe spot
+    
+stack_found:
+    ; Align stack to 16 bytes (performance/ABI requirement)
+    ; Modern CPUs use SIMD instructions (SSE/AVX) that process 128-bit (16-byte) data chunks.
+    ; These instructions require memory addresses to be 16-byte aligned. Accessing unaligned
+    ; memory can cause a General Protection Fault (Crash) or severe performance degradation.
+    ; GCC assumes the stack is 16-byte aligned and generates optimized code based on this
+    ; assumption (System V ABI compliance).
+    and edx, 0xFFFFFFF0
+    
+    mov ebp, edx            ; Set Base Pointer
+    mov esp, ebp            ; Set Stack Pointer to Top of RAM!
 
     ; Jump to kernel (0x100000)
     call 0x100000

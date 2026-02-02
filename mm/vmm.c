@@ -189,14 +189,6 @@ page_directory* vmm_clone_directory(page_directory* src) {
     dir->m_entries[0] = kernel_directory->m_entries[0];
     dir->m_entries[2] = kernel_directory->m_entries[2];
     
-    // [DEBUG] Diagnosing Triple Fault
-    print_string("DEBUG: Clone Dir: ");
-    print_hex((uint32_t)dir);
-    print_string(" Src[0]: ");
-    print_hex(kernel_directory->m_entries[0]);
-    print_string(" Dst[0]: ");
-    print_hex(dir->m_entries[0]);
-    print_string("\n");
 
     // 2. Iterate over all 1024 Page Tables
     for (int i = 0; i < TABLES_PER_DIRECTORY; i++) {

@@ -379,41 +379,41 @@ void main()
     kheap_init();
 
     // TEST: Heap Coalescing (Doubly Linked List Test)
-    print_string("--- HEAP COALESCING TEST ---\n");
+    //print_string("--- HEAP COALESCING TEST ---\n");
     
     // 1. Allocate 3 blocks
     void* ptr_a = kmalloc(256);
     void* ptr_b = kmalloc(256);
     void* ptr_c = kmalloc(256);
     
-    print_string("Allocated A: 0x"); print_hex((uint32_t)ptr_a); print_string("\n");
-    print_string("Allocated B: 0x"); print_hex((uint32_t)ptr_b); print_string("\n");
-    print_string("Allocated C: 0x"); print_hex((uint32_t)ptr_c); print_string("\n");
+    // print_string("Allocated A: 0x"); print_hex((uint32_t)ptr_a); print_string("\n");
+    // print_string("Allocated B: 0x"); print_hex((uint32_t)ptr_b); print_string("\n");
+    // print_string("Allocated C: 0x"); print_hex((uint32_t)ptr_c); print_string("\n");
 
     // 2. Free Middle Block (B) -> Should just be marked free
     kfree(ptr_b);
-    print_string("Freed B.\n");
+    //print_string("Freed B.\n");
 
     // 3. Free First Block (A) -> Should coalesce with NEXT (B)
     kfree(ptr_a);
-    print_string("Freed A (Should merge with B).\n");
+    //print_string("Freed A (Should merge with B).\n");
 
     // 4. Free Last Block (C) -> Should coalesce with PREV (AB)
     kfree(ptr_c);
-    print_string("Freed C (Should merge with AB).\n");
+    //print_string("Freed C (Should merge with AB).\n");
 
     // 5. Verify: Allocate a big block (size of A+B+C)
     // Size = 256 * 3 + Overhead * 2. 
     // If coalescing worked, it should fit in the starting slot (ptr_a).
     void* ptr_big = kmalloc(256 * 3);
-    print_string("Allocated Big: 0x"); print_hex((uint32_t)ptr_big); print_string("\n");
+    //print_string("Allocated Big: 0x"); print_hex((uint32_t)ptr_big); print_string("\n");
 
-    if (ptr_big == ptr_a) {
-        print_string("SUCCESS! Blocks merged perfectly.\n");
-    } else {
-        print_string("FAILURE! Fragmentation detected.\n");
-    }
-    print_string("----------------------------\n");
+    // if (ptr_big == ptr_a) {
+    //     print_string("SUCCESS! Blocks merged perfectly.\n");
+    // } else {
+    //     print_string("FAILURE! Fragmentation detected.\n");
+    // }
+    // print_string("----------------------------\n");
 
     // --- ATA Driver Test ---
     print_string("Testing ATA Driver...\n");

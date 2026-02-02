@@ -134,6 +134,33 @@ void pmm_init(uint32_t kernel_end) {
     
     print_string("PMM: Reserved Low Memory up to 16MB (Static VMM Region).\n");
     
+    // [CRITICAL] Reserve the last 16KB for the Kernel Stack (Phase 2 Safety)
+    // Detailed Logic: Replicate loader.asm's stack selection to be 100% sure.
+    // 1. Loader finds the HIGHEST usable address (which is max_ram).
+    // 2. Loader aligns it down to 16 bytes: ESP = max_ram & 0xFFFFFFF0.
+    // 3. Stack grows DOWN from there.
+    // We must reserve the pages that contain this stack region.
+    
+    uint32_t stack_top_aligned = max_ram & 0xFFFFFFF0;
+    uint32_t stack_bottom = stack_top_aligned - (16 * 1024); // 16KB Stack
+    
+    // Convert addresses to Block Indices
+    // max_ram is the absolute end.
+    
+    uint32_t start_reserved_block = stack_bottom / PMM_BLOCK_SIZE;
+    uint32_t end_reserved_block = total_memory_blocks; // Up to the very end
+    
+    if (end_reserved_block > start_reserved_block) {
+        for (uint32_t i = start_reserved_block; i < end_reserved_block; i++) {
+             mmap_set(i);
+        }
+        print_string("PMM: Reserved Stack from ");
+        print_hex(stack_bottom);
+        print_string(" to ");
+        print_hex(stack_top_aligned);
+        print_string("\n");
+    }
+
     // Recalculate used blocks count
     used_memory_blocks = 0;
     for (uint32_t i = 0; i < total_memory_blocks; i++) {
