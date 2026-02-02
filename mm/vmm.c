@@ -186,9 +186,6 @@ page_directory* vmm_clone_directory(page_directory* src) {
     // [CRITICAL] Explicitly Map Kernel Space (0-4MB and 8-12MB)
     // We treat 'kernel_directory' as the absolute source of truth for kernel mappings.
     // This prevents any 'garbage' from the parent overriding the kernel.
-    // [CRITICAL] Explicitly Map Kernel Space (0-4MB and 8-12MB)
-    // We treat 'kernel_directory' as the absolute source of truth for kernel mappings.
-    // This prevents any 'garbage' from the parent overriding the kernel.
     dir->m_entries[0] = kernel_directory->m_entries[0];
     dir->m_entries[2] = kernel_directory->m_entries[2];
     

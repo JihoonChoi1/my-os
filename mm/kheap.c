@@ -20,6 +20,7 @@ void kheap_init() {
     free_list->magic = KHEAP_MAGIC;
     free_list->is_free = 1;
     free_list->next = 0; // End of list
+    free_list->prev = 0; // Start of list
 
     print_string("KHEAP: Initialized at 0x");
     print_hex(heap_start);
@@ -35,7 +36,6 @@ void *kmalloc(uint32_t size) {
 
     // Find a free block
     header_t *current = free_list;
-    header_t *prev = 0;
 
     while (current) {
         // Check integrity
@@ -54,11 +54,18 @@ void *kmalloc(uint32_t size) {
                 new_block->magic = KHEAP_MAGIC;
                 new_block->is_free = 1;
                 new_block->size = current->size - aligned_size - sizeof(header_t);
+                
+                // Update Linked List (Doubly Linked Insertion)
                 new_block->next = current->next;
+                new_block->prev = current;
+                
+                if (current->next) {
+                    current->next->prev = new_block;
+                }
+                current->next = new_block;
 
                 // Update current block
                 current->size = aligned_size;
-                current->next = new_block;
             }
             
             // Mark as used
@@ -68,7 +75,6 @@ void *kmalloc(uint32_t size) {
             return (void*)((uint32_t)current + sizeof(header_t));
         }
 
-        prev = current;
         current = current->next;
     }
 
@@ -93,12 +99,28 @@ void kfree(void *ptr) {
     // Mark as free
     block->is_free = 1;
 
-    // Coalesce (Merge) with next block if it's free
+    // 1. Coalesce with NEXT block
     if (block->next && block->next->is_free) {
         block->size += block->next->size + sizeof(header_t);
+        // Link to neighbor's neighbor
         block->next = block->next->next;
+        // Update back pointer of the new neighbor
+        if (block->next) {
+            block->next->prev = block;
+        }
     }
 
-    // TODO: Coalesce with PREVIOUS block (Requires doubly linked list)
-    // For now, this is a simple implementation.
+    // 2. Coalesce with PREV block
+    if (block->prev && block->prev->is_free) {
+        // Merge CURRENT into PREV
+        block->prev->size += block->size + sizeof(header_t);
+        
+        // Link PREV to NEXT
+        block->prev->next = block->next;
+        
+        // Update back pointer
+        if (block->next) {
+            block->next->prev = block->prev;
+        }
+    }
 }

@@ -16,7 +16,8 @@
  * Every allocated implementation will have this header before the actual data.
  */
 typedef struct header {
-    struct header *next;   // Pointer to the next block in the free list
+    struct header *next;   // Pointer to the next block
+    struct header *prev;   // Pointer to the previous block (ADDED for Coalescing)
     uint32_t size;         // Size of this block (including header)
     uint32_t magic;        // Magic number for safety check
     uint8_t is_free;       // 1 = Free, 0 = Used
