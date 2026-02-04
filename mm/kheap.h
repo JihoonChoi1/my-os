@@ -4,8 +4,7 @@
 #include <stdint.h>
 
 // Heap Settings
-// Start at 10MB to be safe (Kernel is at 1MB, mapped up to 4MB)
-#define KHEAP_START         0xA00000
+// KHEAP_START is now Dynamic (See kheap.c)
 #define KHEAP_INITIAL_SIZE  0x100000  // 1MB Initial Size
 
 // Magic number to check for corruption

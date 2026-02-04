@@ -16,6 +16,11 @@ extern page_directory BootPageDirectory;
 // The Kernel's Page Directory (Global Pointer)
 page_directory* kernel_directory = &BootPageDirectory;
 
+// Bootstrap Page Tables for Direct Mapping (0-128MB)
+// We need 32 tables to map 128MB.
+// Allocated in .bss (Low Memory Safe Zone), so we can access them during init.
+static page_table linear_mapping_tables[32] __attribute__((aligned(4096)));
+
 // Helper: Memory Set
 void *memset(void *s, int c, unsigned int n) {
     unsigned char *p = s;
@@ -88,39 +93,32 @@ void vmm_init() {
     // Note: Paging is ALREADY Enabled by head.asm!
     // kernel_directory is already pointing to 3GB Virtual Address of BootPageDirectory.
 
-    // 1. Remap Heap to Higher Half?
-    // Current Heap Logic in kheap.c uses KHEAP_START (need to update that constant).
-    // For now, let's just assert that 3GB mapping works.
+    // 1. Establish Direct Mapping for 0-128MB (Physical) -> 3GB+ (Virtual)
+    // This allows the kernel to access ALL physical memory via P2V macro.
+    // It also covers the new Kernel Heap location.
+    
+    // 32 Tables cover 128MB (4MB per table)
+    uint32_t start_pde_index = KERNEL_VIRT_BASE >> 22; // Index 768
+    
+    for (int i = 0; i < 32; i++) {
+        // Physical Address of the static table
+        uint32_t table_phys = V2P((uint32_t)&linear_mapping_tables[i]);
+        
+        // Register in Directory
+        kernel_directory->m_entries[start_pde_index + i] = table_phys | I86_PTE_PRESENT | I86_PTE_WRITABLE;
+
+        // Fill the table (Identity Map relative to base)
+        for (int j = 0; j < 1024; j++) {
+            uint32_t frame_phys = (i * 1024 * 4096) + (j * 4096);
+            linear_mapping_tables[i].m_entries[j] = frame_phys | I86_PTE_PRESENT | I86_PTE_WRITABLE;
+        }
+    }
+    print_string("VMM: Direct Mapping (0-128MB) Established.\n");
 
     // 2. Map VGA Buffer (Physical 0xB8000) to Virtual 0xC00B8000
     // This allows us to access VGA memory using Higher Half addresses.
     vmm_map_page(0xC00B8000, 0xB8000, I86_PTE_PRESENT | I86_PTE_WRITABLE);
     
-    // --- [LEGACY MAPPING] ---
-    // To keep the OS booting while we are in Phase 4.3 (VMM Refactoring),
-    // we must manually map the regions that the current Kernel and User programs expect.
-    // In Phase 4.4 and 4.5, we will move these to new locations.
-    
-    // A. Map Kernel Heap (Legacy: Starts at 10MB)
-    // Range: 0xA00000 (10MB) -> 0xB00000 (11MB)
-    for (uint32_t i = 0; i < 256; i++) { // 256 pages = 1MB
-        uint32_t addr = 0xA00000 + (i * PAGE_SIZE);
-        vmm_map_page(addr, addr, I86_PTE_PRESENT | I86_PTE_WRITABLE);
-    }
-    
-    // B. Map User Space (Legacy: Starts at 4MB)
-    // Range: 0x400000 (4MB) -> 0x800000 (8MB)
-    for (uint32_t i = 0; i < 1024; i++) { // 1024 pages = 4MB
-        uint32_t addr = 0x400000 + (i * PAGE_SIZE);
-        vmm_map_page(addr, addr, I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER);
-    }
-    
-    // C. Map User Stack (Legacy: Ends at 16MB)
-    // Range: 0xF00000 (15MB) -> 0x1000000 (16MB)
-    for (uint32_t i = 0; i < 256; i++) { // 256 pages = 1MB
-        uint32_t addr = 0xF00000 + (i * PAGE_SIZE);
-        vmm_map_page(addr, addr, I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER);
-    }
 
     print_string("VMM: Initialized in Higher Half!\n");
     print_string("VMM: Mapped VGA to 0xC00B8000\n");

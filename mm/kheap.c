@@ -2,19 +2,28 @@
 #include "pmm.h" // For null definition if needed, or just 0
 #include "vmm.h" // If we need to map pages dynamically (done statically for now)
 
+extern uint32_t _kernel_end;
 extern void print_string(char* str);
 extern void print_hex(uint32_t n);
 
 // Start of the heap (Virtual Address)
-static uint32_t heap_start = KHEAP_START;
+static uint32_t heap_start = 0;
 // Current End of the heap
-static uint32_t heap_end = KHEAP_START + KHEAP_INITIAL_SIZE;
+static uint32_t heap_end = 0;
 // Head of the free list
 static header_t *free_list = 0;
 
 void kheap_init() {
-    // We assume the pages for 10MB-11MB are already mapped by VMM (Identity Mapped).
-    // Initialize the first block covering the entire heap
+    // 1. Determine Heap Location dynamically
+    // Get the address of the end of the kernel (from linker script)
+    uint32_t kernel_end_addr = (uint32_t)&_kernel_end;
+
+    // Align to the next Page Boundary (4KB)
+    // (kernel_end + 4095) & ~4095
+    heap_start = (kernel_end_addr + 0x1000) & 0xFFFFF000;
+    heap_end = heap_start + KHEAP_INITIAL_SIZE;
+
+    // 2. Initialize the first block
     free_list = (header_t*)heap_start;
     free_list->size = KHEAP_INITIAL_SIZE - sizeof(header_t);
     free_list->magic = KHEAP_MAGIC;

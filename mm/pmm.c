@@ -54,8 +54,10 @@ void pmm_init(uint32_t kernel_end) {
     }
 
     // Read E820 Map from 0x8000
-    uint16_t entry_count = *(uint16_t*)0x8000;
-    mmap_entry_t* entries = (mmap_entry_t*)0x8004;
+    // Must access it via the Kernel Base (0xC0000000 + 0x8000).
+    // head.asm maps the first 4MB to 0xC0000000, so this works.
+    uint16_t entry_count = *(uint16_t*)(0xC0000000 + 0x8000);
+    mmap_entry_t* entries = (mmap_entry_t*)(0xC0000000 + 0x8004);
 
     print_string("PMM: Parsing Memory Map...\n");
     print_string("Entries detected: ");
@@ -122,17 +124,22 @@ void pmm_init(uint32_t kernel_end) {
     // To prevent PMM from handing out these frames (which would cause aliasing/corruption),
     // we must reserve EVERYTHING up to 16MB.
     
-    uint32_t reserved_end = 16 * 1024 * 1024; // 16MB
-    if (reserved_end < kernel_end) reserved_end = kernel_end; // Safety
+    // Mark Kernel Region as USED
+    // Now that we support Higher Half Kernel and dynamic mapping,
+    // we only need to reserve the physical memory actually used by the kernel image.
+    // The rest (from kernel_end upwards) is free for PMM to allocate.
     
+    uint32_t reserved_end = kernel_end; 
+    
+    // Align up to next block boundary
     uint32_t reserved_limit_block = (reserved_end + PMM_BLOCK_SIZE - 1) / PMM_BLOCK_SIZE;
 
-    // Protect 0x0 up to 16MB
+    // Protect 0x0 up to Kernel End
     for (uint32_t i = 0; i < reserved_limit_block; i++) {
         mmap_set(i);
     }
     
-    print_string("PMM: Reserved Low Memory up to 16MB (Static VMM Region).\n");
+    print_string("PMM: Reserved Low Memory up to Kernel End.\n");
     
     // [CRITICAL] Reserve the last 16KB for the Kernel Stack (Phase 2 Safety)
     // Detailed Logic: Replicate loader.asm's stack selection to be 100% sure.

@@ -252,7 +252,6 @@ void print_buffer(char *string, int len)
         handle_scrolling();
     }
 
-    // 4. 커서 업데이트 (루프 밖에서 한 번만 해도 충분합니다)
     set_cursor_offset(cursor_offset);
 }
 
@@ -346,7 +345,6 @@ void main()
 
     pic_remap();
     print_string("Phase 4: PIC Remapped (IRQ 0-15 -> INT 32-47).\n");
-
     set_idt();
     print_string("IDT loaded successfully!\n");
 
@@ -354,27 +352,26 @@ void main()
     init_gdt();
     init_tss();
     print_string("GDT & TSS Initialized.\n");
-    
     // Initialize Timer (50 Hz)
     init_timer(50);
-
-    // Enable Interrupts
+    //while(1);
     // Enable Interrupts
     // Initialize Multitasking
     // Initialize PMM
+    //while(1);
+    vmm_init();
+    //while(1);
     pmm_init((uint32_t)&_kernel_end);
-
     // Verify PMM
     print_string("--- PMM TEST ---\n");
     uint32_t p1 = pmm_alloc_block();
     print_string("Allocated: 0x"); print_hex(p1); print_string("\n");
     pmm_free_block(p1);
-
     // Initialize Virtual Memory (Identity Map)
-    vmm_init();
-    
+
+    //while(1);
     // Enable Paging
-    vmm_enable_paging();
+    //vmm_enable_paging();    
 
     // Initialize Heap
     kheap_init();
@@ -415,7 +412,6 @@ void main()
     //     print_string("FAILURE! Fragmentation detected.\n");
     // }
     // print_string("----------------------------\n");
-
     // --- ATA Driver Test ---
     print_string("Testing ATA Driver...\n");
     uint8_t sect[512];
@@ -430,7 +426,7 @@ void main()
     
     // Initialize Multitasking (Creates PID 0)
     init_multitasking();
-    
+    while(1);
     // --- Create PID 1: Shell Task ---
     // Instead of transforming the Kernel (PID 0) into Shell via enter_user_mode,
     // we spawn a clean new task (PID 1) to be the Shell.
