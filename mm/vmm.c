@@ -103,16 +103,24 @@ void vmm_init() {
     for (int i = 0; i < 32; i++) {
         // Physical Address of the static table
         uint32_t table_phys = V2P((uint32_t)&linear_mapping_tables[i]);
-        
+        //print_hex(table_phys);
+        //print_string("\n");
+        //print_hex((uint32_t)&linear_mapping_tables[i]);
+        //print_string("\n");
+        //while(1);
         // Register in Directory
-        kernel_directory->m_entries[start_pde_index + i] = table_phys | I86_PTE_PRESENT | I86_PTE_WRITABLE;
-
+        // linear_mapping_tables[i].m_entries[0] = 1;
+        //while(1);
         // Fill the table (Identity Map relative to base)
         for (int j = 0; j < 1024; j++) {
             uint32_t frame_phys = (i * 1024 * 4096) + (j * 4096);
+            // while(1);
             linear_mapping_tables[i].m_entries[j] = frame_phys | I86_PTE_PRESENT | I86_PTE_WRITABLE;
         }
+        kernel_directory->m_entries[start_pde_index + i] = table_phys | I86_PTE_PRESENT | I86_PTE_WRITABLE;
     }
+    uint32_t pd_phys = V2P((uint32_t)kernel_directory);
+    __asm__ volatile("mov %0, %%cr3" : : "r"(pd_phys) : "memory");      
     print_string("VMM: Direct Mapping (0-128MB) Established.\n");
 
     // 2. Map VGA Buffer (Physical 0xB8000) to Virtual 0xC00B8000

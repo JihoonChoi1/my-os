@@ -107,10 +107,15 @@ void pmm_init(uint32_t kernel_end) {
     
     // Calculate total blocks
     total_memory_blocks = max_ram / PMM_BLOCK_SIZE;
+    print_dec(total_memory_blocks);
+    print_string("\n");
+    //while(1);
     if (total_memory_blocks > BITMAP_SIZE * 8) {
         total_memory_blocks = BITMAP_SIZE * 8; // Cap at bitmap limit
     }
-
+    print_dec(total_memory_blocks);
+    print_string("\n");
+    //while(1);
     print_string("Total RAM detected: ");
     print_dec(max_ram / 1024 / 1024);
     print_string(" MB\n");
@@ -128,16 +133,30 @@ void pmm_init(uint32_t kernel_end) {
     // Now that we support Higher Half Kernel and dynamic mapping,
     // we only need to reserve the physical memory actually used by the kernel image.
     // The rest (from kernel_end upwards) is free for PMM to allocate.
-    
-    uint32_t reserved_end = kernel_end; 
+    print_hex(kernel_end);
+    print_string("\n");
+    //while(1);
+    uint32_t kernel_end_phys = kernel_end - 0xC0000000;
+    print_hex(kernel_end_phys);
+    print_string("\n");
+    //while(1);
+    // Align up to next block boundary
+    uint32_t reserved_limit_block = (kernel_end_phys + PMM_BLOCK_SIZE - 1) / PMM_BLOCK_SIZE; 
     
     // Align up to next block boundary
-    uint32_t reserved_limit_block = (reserved_end + PMM_BLOCK_SIZE - 1) / PMM_BLOCK_SIZE;
-
+    print_dec(total_memory_blocks);
+    print_string("\n");
+    //while(1);
     // Protect 0x0 up to Kernel End
+    print_hex(reserved_limit_block);
+    print_string("\n");
+    //while(1);
     for (uint32_t i = 0; i < reserved_limit_block; i++) {
         mmap_set(i);
     }
+    print_dec(total_memory_blocks);
+    print_string("\n");
+    //while(1);
     
     print_string("PMM: Reserved Low Memory up to Kernel End.\n");
     
@@ -156,7 +175,11 @@ void pmm_init(uint32_t kernel_end) {
     
     uint32_t start_reserved_block = stack_bottom / PMM_BLOCK_SIZE;
     uint32_t end_reserved_block = total_memory_blocks; // Up to the very end
-    
+    print_dec(end_reserved_block);
+    print_string("\n");
+    print_dec(start_reserved_block);
+    print_string("\n");
+    //while(1);
     if (end_reserved_block > start_reserved_block) {
         for (uint32_t i = start_reserved_block; i < end_reserved_block; i++) {
              mmap_set(i);

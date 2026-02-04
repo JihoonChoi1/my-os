@@ -150,3 +150,108 @@ To isolate the exact line causing the crash, I inserted infinite loops (`while(1
     1.  **PMM Reservation:** Updated `pmm_init` to reserve **0-16MB** as "Used". Only high memory (16MB+) is now allocated dynamically.
     2.  **Identity Mapping Extension:** Updated `vmm_init` to Identity Map up to 128MB, allowing the kernel to access high-memory frames.
     3.  **Outcome:** Triple Fault resolved. `fork()` and `exec()` now function stably.
+
+---
+
+# Debugging Log: VMM Initialization Page Fault & TLB Coherence
+
+**Date:** 2026-02-04
+**Module:** VMM (`mm/vmm.c`)
+**Severity:** Critical (Page Fault at 0xC011D000)
+
+## 1. Issue: Page Fault during VMM Initialization
+- **Symptom:** The kernel immediately triggered a Page Fault at `0xC011D000` during initialization.
+
+## 2. Debugging Process: Tracing the Phantom Crash
+1.  **Narrowing Down:** Inserted `while(1)` loops to locate the failure point. The crash occurred specifically at the line:
+    ```c
+    linear_mapping_tables[i].m_entries[j] = frame_phys | I86_PTE_PRESENT | I86_PTE_WRITABLE;
+    ```
+2.  **Address Verification:** Used `print_hex` to identify the address `0xC011D000`. Confirmed that this address corresponds to `linear_mapping_tables` itself (which is in the kernel's `.bss` section).
+3.  **The "Dummy Value" Experiment:**
+    - To test if *any* write would succeed, I inserted `linear_mapping_tables[i].m_entries[0] = 1;` before the loop.
+    - **Result:** The loop ran to completion without crashing (though it filled garbage). This behavior was strange: adding a write *before* the crash loop effectively "fixed" the crash.
+
+## 3. Root Cause Analysis: TLB & Page Table Mapping Order
+- **Symptom Analysis:** Why did the dummy write prevent the crash?
+    - I consulted the **Intel SDM** and investigated TLB behavior.
+    - My hypothesis: When `linear_mapping_tables[i].m_entries[0] = 1;` is executed, the CPU caches the *current* valid translation (from `head.asm`) into the TLB. The subsequent loop then hits the TLB instead of walking the incomplete page table.
+- **Code Trace:**
+    - I analyzed the original code flow:
+        ```c
+        // 1. Register PDE (Door Open)
+        kernel_directory->m_entries[start_pde_index + i] = table_phys | ...;
+        // 2. Fill PTEs (Room Setup)
+        linear_mapping_tables[i].m_entries[j] = frame_phys | ...;
+        ```
+    - **Fatal Flaw:**
+        - `linear_mapping_tables` exists in the very memory region (0xC0xxxxxx) that I am re-mapping.
+        - By registering the PDE *first*, I overwrote the existing valid mapping (from `head.asm`) with a pointer to an *empty* page table.
+        - When the next line tried to write to `linear_mapping_tables`, the CPU tried to translate `0xC0xxxxxx`, saw the new PDE, looked into the empty table, and crashed with a Page Fault (Not Present).
+
+## 4. Resolution: Commit-Reveal Pattern
+- **Fix:** Swapped the order of operations to ensure the page table is fully populated *before* being linked to the directory.
+    ```c
+    // 1. Fill Table First (while old mapping keeps us safe)
+    for (int j = 0; j < 1024; j++) {
+        uint32_t frame_phys = ...;
+        linear_mapping_tables[i].m_entries[j] = frame_phys | ...;
+    }
+    // 2. Register PDE (Atomic Switch)
+    kernel_directory->m_entries[start_pde_index + i] = table_phys | ...;
+    ```
+- **TLB Invalidation:**
+    - Acknowledged that TLB behavior caused the phantom debugging results.
+    - Consulted **Intel SDM 5.10.4.1** ("Operations that Invalidate TLBs and Paging-Structure Caches").
+    - Added an explicit CR3 reload to enforce TLB consistency after the update:
+    ```c
+    uint32_t pd_phys = V2P((uint32_t)kernel_directory);
+    __asm__ volatile("mov %0, %%cr3" : : "r"(pd_phys) : "memory");
+    ```
+- **Outcome:** The kernel now initializes correctly, maintaining safe access to its own memory structures throughout the process.
+
+---
+
+# Debugging Log: PMM Memory Corruption & Buffer Overflow
+
+**Date:** 2026-02-04
+**Module:** PMM (`mm/pmm.c`)
+**Severity:** Critical (System Reboot / Memory Corruption)
+
+## 1. Issue Description
+- **Symptom:** After fixing the VMM crash, the kernel printed "PMM: Reserved Low Memory up to Kernel End" and then silently shutted down.
+- **Observation:** The expected log from the subsequent code block was missing, indicating a crash or state corruption immediately after the reservation loop.
+
+## 2. Debugging Process
+1.  **Binary Search:** Inserted `print_dec` and `while(1)` calls to inspect variable values.
+    - Result: `end_reserved_block` was found to be `-1` (`0xFFFFFFFF`).
+2.  **Backtracing:** Traced the source of this value.
+    - `end_reserved_block` gets its value from `total_memory_blocks`.
+    - `total_memory_blocks` was behaving normally *before* the reservation loop, but became `-1` *after* the loop.
+3.  **Hypothesis:** The PMM loop `for (i=0; i<reserved_limit_block; i++) mmap_set(i);` was somehow corrupting the `total_memory_blocks` variable.
+4.  **Memory Layout Analysis:**
+    - Confirmed in `pmm.c` that `total_memory_blocks` is defined immediately after `memory_bitmap`.
+    - `mmap_set(i)` sets bits to 1.
+    - `-1` in integer representation is `0xFFFFFFFF` (all bits 1).
+    - **Conclusion:** A Buffer Overflow in `memory_bitmap` was spilling over into `total_memory_blocks`, overwriting it with 1s.
+
+## 3. Root Cause Analysis
+- **Code:** `uint32_t reserved_end = kernel_end;`
+- **Context:** `kernel_end` is a symbol provided by the linker script.
+- **Mechanism:**
+    - In the Higher Half Kernel architecture, `_kernel_end` is linked at a **Virtual Address** (approx `0xC01xxxxx`).
+    - The PMM is designed to work with **Physical Addresses** (indices into the bitmap).
+    - **Fatal Error:** The code treated the virtual address (~3,222,xxx,xxx) as a physical index.
+    - **Result:** The loop tried to reserve 3 billion blocks. This far exceeded the size of `memory_bitmap` (32KB), causing a massive overwrite of adjacent global variables in the `.bss` section.
+
+## 4. Resolution
+- **Fix:** Explicitly converted the virtual address to a physical address before using it in PMM calculations.
+- **Implementation:**
+  ```c
+  // Convert Virtual (0xC0xxxxxx) to Physical (0x0xxxxxxx)
+  uint32_t kernel_end_phys = kernel_end - 0xC0000000;
+  uint32_t reserved_limit_block = (kernel_end_phys + PMM_BLOCK_SIZE - 1) / PMM_BLOCK_SIZE;
+  ```
+- **Outcome:** The PMM initialized correctly, reserving only the actual physical memory used by the kernel (approx 1MB range), and the system boot continued without corruption.
+
+
