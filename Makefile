@@ -51,7 +51,7 @@ mkfs: tools/mkfs.c fs/fs.h
 ASM_OBJS = kernel/context_switch.o
 
 # kernel.bin requires assembly objects, C objects, and extra ASM objects
-kernel.bin: kernel/kernel_entry.o cpu/interrupt.o ${OBJ_FILES} ${ASM_OBJS}
+kernel.bin: kernel/head.o cpu/interrupt.o ${OBJ_FILES} ${ASM_OBJS}
 	${LD} -o $@ $^ ${LDFLAGS}
  
 # --------------------------------------------------------
@@ -83,4 +83,4 @@ loader.bin: boot/loader.asm
 clean:
 	rm -f *.bin mkfs disk.img
 	rm -f $(OBJ_FILES)
-	rm -f kernel/kernel_entry.o cpu/interrupt.o
+	rm -f kernel/head.o cpu/interrupt.o

@@ -5,8 +5,16 @@
 extern void print_string(char* str);
 extern void print_hex(uint32_t num);
 
-// The Kernel's Page Directory
-page_directory* kernel_directory = 0;
+// --- Higher Half Kernel Constants ---
+#define KERNEL_VIRT_BASE 0xC0000000
+#define KERNEL_PAGE_INDEX (KERNEL_VIRT_BASE >> 22)
+
+// --- Boot Page Directory (Allocated in .bss by head.asm) ---
+// Since we are compiled at 0xC0... addresses, &BootPageDirectory gives us a Virtual Address.
+extern page_directory BootPageDirectory; 
+
+// The Kernel's Page Directory (Global Pointer)
+page_directory* kernel_directory = &BootPageDirectory;
 
 // Helper: Memory Set
 void *memset(void *s, int c, unsigned int n) {
@@ -17,155 +25,114 @@ void *memset(void *s, int c, unsigned int n) {
     return s;
 }
 
-void vmm_init() {
-    // Allocate a Page Directory from PMM
-    // Since paging is OFF, the physical address returned is usable as a pointer.
-    kernel_directory = (page_directory*)pmm_alloc_block();
-    if (!kernel_directory) {
-        print_string("VMM Error: Failed to allocate Page Directory!\n");
-        return;
-    }
-
-    // Clear 1024 entries (Mark all as not present)
-    for (int i = 0; i < TABLES_PER_DIRECTORY; i++) {
-        // Attribute: Read/Write, Supervisor
-        kernel_directory->m_entries[i] = 0 | I86_PTE_WRITABLE; 
-    }
-
-    // Allocate the First Page Table (To map 0MB - 4MB)
-    page_table* first_table = (page_table*)pmm_alloc_block();
-    if (!first_table) {
-        print_string("VMM Error: Failed to allocate Page Table!\n");
-        return;
-    }
-
-    // Identity Map the first 4MB
-    // 0x00000000 -> 0x00000000
-    // 0x00001000 -> 0x00001000
-    // ...
-    // This ensures that when we turn on paging, the currently running kernel code
-    // (which is at 0x100000) keeps running without crashing.
-    for (int i = 0; i < PAGES_PER_TABLE; i++) {
-        uint32_t frame = i * PAGE_SIZE; // 0, 4096, 8192 ...
-        
-        // Entry = Frame Address | Present | Writable | User (TEMPORARY: Allow Ring 3 to Execute Kernel Code)
-        // Since our test code (switch_to_user_mode) is inside the kernel (0-4MB),
-        // we must allow User Mode to read/execute pages in this region.
-        first_table->m_entries[i] = frame | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
-    }
-
-    // Register the Page Table in the Page Directory
-    // Index 0 (0-4MB) -> User Accessible
-    kernel_directory->m_entries[0] = (uint32_t)first_table | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
-
-    // --- USER PROGRAM TEXT/DATA (4MB - 8MB) ---
-    // User programs are linked at 0x400000 (4MB).
-    // This corresponds to Directory Index 1.
-    
-    page_table* user_text_table = (page_table*)pmm_alloc_block();
-    if (!user_text_table) {
-         print_string("VMM Error: Failed to allocate User Text Table!\n");
-         return;
-    }
-    
-    // Map 4MB-8MB. We'll map them as Present | Writable | User.
-    // In a real OS, we might want to map these on demand (Page Fault), but for now, 
-    // we map the whole 4MB chunk so we can just memcpy the ELF segments there.
-    for (int i = 0; i < PAGES_PER_TABLE; i++) {
-        uint32_t frame = (1 * 1024 * PAGE_SIZE) + (i * PAGE_SIZE); // Base 4MB
-        user_text_table->m_entries[i] = frame | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
-    }
-    
-    // Register in Directory Index 1
-    kernel_directory->m_entries[1] = (uint32_t)user_text_table | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
-    print_string("VMM: Mapped 4-8MB for User Programs.\n");
-
-    // --- HEAP MAPPING (8MB - 12MB) ---
-    // We want the heap to start at 10MB (0xA00000).
-    // 10MB falls into the range 8MB-12MB, which is Directory Index 2.
-    
-    // Allocate a Page Table for the Heap (covers 8MB-12MB)
-    page_table* heap_table = (page_table*)pmm_alloc_block();
-    if (!heap_table) {
-        print_string("VMM Error: Failed to allocate Heap Page Table!\n");
-        return;
-    }
-
-    // Identity Map 8MB-12MB
-    // Physical Addresses: 0x800000 to 0xBFFFFF
-    for (int i = 0; i < PAGES_PER_TABLE; i++) {
-        // Base address for this table is 8MB (2 * 4MB)
-        uint32_t frame = (2 * 1024 * PAGE_SIZE) + (i * PAGE_SIZE);
-        
-        // Map it! Kernel Only (Supervisor)
-        heap_table->m_entries[i] = frame | I86_PTE_PRESENT | I86_PTE_WRITABLE;
-    }
-
-    // Register this table at Directory Index 2
-    kernel_directory->m_entries[2] = (uint32_t)heap_table | I86_PTE_PRESENT | I86_PTE_WRITABLE;
-
-    print_string("VMM: Mapped 8-12MB for Heap.\n");
-
-    // --- USER STACK MAPPING (15MB - 16MB) ---
-    // We will use Directory Index 3 (12MB - 16MB)
-    // 0xF00000 is at 15MB.
-    
-    page_table* user_stack_table = (page_table*)pmm_alloc_block();
-    if (!user_stack_table) {
-         print_string("VMM Error: Failed to allocate User Stack Table!\n");
-         return;
-    }
-
-    // [Fix] Map the entire 12MB-16MB region as Identity Kernel by default.
-    // This allows copy_page_physical to access frames allocated in this range (like 0xC00000).
-    for (int i = 0; i < PAGES_PER_TABLE; i++) {
-        uint32_t frame = (3 * 1024 * PAGE_SIZE) + (i * PAGE_SIZE); // Base 12MB
-        user_stack_table->m_entries[i] = frame | I86_PTE_PRESENT | I86_PTE_WRITABLE; // Kernel R/W
-    }
-    
-    // Now OVERLAY the User Stack at 15MB (0xF00000)
-    // 0xF00000 corresponds to the 768th entry in the Page Table of Index 3. 
-    int user_stack_idx = 768; // 3MB offset into 3rd Page Table (15MB mark)
-    
-    for (int i = 0; i < 4; i++) {
-        uint32_t user_stack_frame = 0xF00000 + (i * PAGE_SIZE);
-        user_stack_table->m_entries[user_stack_idx + i] = user_stack_frame | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
-    }
-    
-    // Register in Directory Index 3 (12-16MB)
-    // PTE must be USER accessible to allow access to the User Stack pages inside it.
-    kernel_directory->m_entries[3] = (uint32_t)user_stack_table | I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER;
-
-    print_string("VMM: Mapped User Stack at 0xF00000 (Identity 12-16MB included).\n");
-
-    // --- IDENTITY MAPPING FOR REMAINING RAM (16MB - 128MB) ---
-    // PMM manages up to 128MB. We must map this entire range so the Kernel can access
-    // any physical frame returned by PMM (e.g., for copy_page_physical).
-    // Indexes: 4 (16MB) to 31 (128MB)
-    
-    for (int i = 4; i < 32; i++) {
-        page_table* identity_table = (page_table*)pmm_alloc_block();
-        if (!identity_table) break; // Should not happen early on
-        
-        for (int j = 0; j < PAGES_PER_TABLE; j++) {
-            uint32_t frame = (i * 1024 * PAGE_SIZE) + (j * PAGE_SIZE);
-            identity_table->m_entries[j] = frame | I86_PTE_PRESENT | I86_PTE_WRITABLE; // Kernel R/W
-        }
-        
-        kernel_directory->m_entries[i] = (uint32_t)identity_table | I86_PTE_PRESENT | I86_PTE_WRITABLE;
-    }
-    print_string("VMM: Identity Mapped up to 128MB.\n");
+// Convert Virtual Address to Physical Address (Simple subtraction)
+// Only valid for Kernel Identity Map region (3GB -> 0GB)
+uint32_t V2P(uint32_t virt) {
+    return virt - KERNEL_VIRT_BASE;
 }
 
-// Helper to copy content of one physical frame to another
-// WARNING: This simply casts physical addresses to pointers.
-// It assumes that 'src' and 'dest' are inside the Identity Mapped region (currently 0-12MB is mapped).
-// If PMM returns a high address (e.g., > 16MB) that is not mapped, this WILL crash (Page Fault).
-// In a full OS, this should use temporary mapping (kmap).
+// Convert Physical Address to Virtual Address (Simple addition)
+uint32_t P2V(uint32_t phys) {
+    return phys + KERNEL_VIRT_BASE;
+}
+
+// Map a single virtual page to a physical frame
+// virt: Virtual Address (Must be Page Aligned)
+// phys: Physical Address (Must be Page Aligned)
+// flags: Page Flags (Present, RW, User, etc.)
+int vmm_map_page(uint32_t virt, uint32_t phys, uint32_t flags) {
+    uint32_t pd_index = virt >> 22;
+    uint32_t pt_index = (virt >> 12) & 0x03FF;
+
+    // 1. Check if Page Table exists
+    if (!(kernel_directory->m_entries[pd_index] & I86_PTE_PRESENT)) {
+        // Allocate a new Page Table
+        // PMM returns a physical address (e.g., 0x200000)
+        uint32_t new_table_phys = pmm_alloc_block();
+        if (!new_table_phys) return 0; // OOM
+
+        // We need to access this new table to clear it.
+        // Since we map all physical RAM to 0xC0xxxxxx (conceptually),
+        // we can access it via P2V(new_table_phys).
+        page_table* new_table_virt = (page_table*)P2V(new_table_phys);
+        memset(new_table_virt, 0, sizeof(page_table));
+
+        // Register in Directory
+        // The Entry must store the PHYSICAL address of the table
+        uint32_t pde_flags = I86_PTE_PRESENT | I86_PTE_WRITABLE;
+        if (flags & I86_PTE_USER) {
+            pde_flags |= I86_PTE_USER;
+        }
+        kernel_directory->m_entries[pd_index] = new_table_phys | pde_flags;
+    }
+
+    // 2. Get the Page Table
+    // The entry contains the Physical Address of the table.
+    uint32_t table_phys = kernel_directory->m_entries[pd_index] & 0xFFFFF000;
+    page_table* table = (page_table*)P2V(table_phys);
+
+    // 3. Set the Page Table Entry
+    table->m_entries[pt_index] = phys | flags;
+    
+    // Invalidate TLB for this address
+    // The CPU may have cached the previous state (e.g., "Not Present" or an old physical address)
+    // in the TLB. We execute 'invlpg' to force the CPU to forget this specific virtual address 
+    // and re-read the Page Table from RAM on the next access.
+    __asm__ volatile("invlpg (%0)" ::"r" (virt) : "memory");
+
+    return 1;
+}
+
+
+void vmm_init() {
+    // Note: Paging is ALREADY Enabled by head.asm!
+    // kernel_directory is already pointing to 3GB Virtual Address of BootPageDirectory.
+
+    // 1. Remap Heap to Higher Half?
+    // Current Heap Logic in kheap.c uses KHEAP_START (need to update that constant).
+    // For now, let's just assert that 3GB mapping works.
+
+    // 2. Map VGA Buffer (Physical 0xB8000) to Virtual 0xC00B8000
+    // This allows us to access VGA memory using Higher Half addresses.
+    vmm_map_page(0xC00B8000, 0xB8000, I86_PTE_PRESENT | I86_PTE_WRITABLE);
+    
+    // --- [LEGACY MAPPING] ---
+    // To keep the OS booting while we are in Phase 4.3 (VMM Refactoring),
+    // we must manually map the regions that the current Kernel and User programs expect.
+    // In Phase 4.4 and 4.5, we will move these to new locations.
+    
+    // A. Map Kernel Heap (Legacy: Starts at 10MB)
+    // Range: 0xA00000 (10MB) -> 0xB00000 (11MB)
+    for (uint32_t i = 0; i < 256; i++) { // 256 pages = 1MB
+        uint32_t addr = 0xA00000 + (i * PAGE_SIZE);
+        vmm_map_page(addr, addr, I86_PTE_PRESENT | I86_PTE_WRITABLE);
+    }
+    
+    // B. Map User Space (Legacy: Starts at 4MB)
+    // Range: 0x400000 (4MB) -> 0x800000 (8MB)
+    for (uint32_t i = 0; i < 1024; i++) { // 1024 pages = 4MB
+        uint32_t addr = 0x400000 + (i * PAGE_SIZE);
+        vmm_map_page(addr, addr, I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER);
+    }
+    
+    // C. Map User Stack (Legacy: Ends at 16MB)
+    // Range: 0xF00000 (15MB) -> 0x1000000 (16MB)
+    for (uint32_t i = 0; i < 256; i++) { // 256 pages = 1MB
+        uint32_t addr = 0xF00000 + (i * PAGE_SIZE);
+        vmm_map_page(addr, addr, I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER);
+    }
+
+    print_string("VMM: Initialized in Higher Half!\n");
+    print_string("VMM: Mapped VGA to 0xC00B8000\n");
+    print_string("VMM: Mapped Legacy Regions (Heap, User).\n");
+}
+
+// Helper: Copy physical page
+// We access physical memory by adding KERNEL_VIRT_BASE, because 
+// we assume 0~KernelSize is mapped 1:1 at 3GB.
 void copy_page_physical(uint32_t src, uint32_t dest) {
-    // Using a simple cast since we assume Identity Mapping for implemented ranges
-    uint32_t* src_ptr = (uint32_t*)src;
-    uint32_t* dest_ptr = (uint32_t*)dest;
+    uint32_t* src_ptr = (uint32_t*)P2V(src);
+    uint32_t* dest_ptr = (uint32_t*)P2V(dest);
     
     for (int i=0; i<1024; i++) {
         dest_ptr[i] = src_ptr[i];
@@ -173,106 +140,77 @@ void copy_page_physical(uint32_t src, uint32_t dest) {
 }
 
 
-// Clone the current page directory (Deep Copy for User, Shared for Kernel)
+// Clone Directory (Updated for Higher Half)
 page_directory* vmm_clone_directory(page_directory* src) {
-    // 1. Allocate new Page Directory
-    page_directory* dir = (page_directory*)pmm_alloc_block();
-    // print_hex((uint32_t)dir);
-    if (!dir) return 0;
+    // Allocate new directory (Physical)
+    uint32_t dir_phys = pmm_alloc_block();
+    if (!dir_phys) return 0;
 
-    // [Safety] Zero initialization to prevent Triple Faults caused by garbage data
+    // Access via Virtual Address
+    page_directory* dir = (page_directory*)P2V(dir_phys);
     memset(dir, 0, sizeof(page_directory));
 
-    // [CRITICAL] Explicitly Map Kernel Space (0-4MB and 8-12MB)
-    // We treat 'kernel_directory' as the absolute source of truth for kernel mappings.
-    // This prevents any 'garbage' from the parent overriding the kernel.
-    dir->m_entries[0] = kernel_directory->m_entries[0];
-    dir->m_entries[2] = kernel_directory->m_entries[2];
-    
+    // 1. Link Kernel Space (768 ~ 1023) - SHARED
+    // Everything from 3GB and up is Kernel Space.
+    for (int i = 768; i < 1024; i++) {
+        dir->m_entries[i] = src->m_entries[i];
+    }
 
-    // 2. Iterate over all 1024 Page Tables
-    for (int i = 0; i < TABLES_PER_DIRECTORY; i++) {
-        
-        // Skip Kernel Entries we already handled above
-        if (i == 0 || i == 2) continue;
-        
-        // Skip empty entries
+    // 2. Clone User Space (0 ~ 767) - DEEP COPY
+    for (int i = 0; i < 768; i++) {
         if (!(src->m_entries[i] & I86_PTE_PRESENT)) continue;
 
-        // ---------------------------------------------------------
-        // Strategy: Copy vs Share based on Index
-        // ---------------------------------------------------------
+        // Found a User Page Table. We need to copy it?
+        // Wait, for 'fork', do we copy the TABLE or the PAGES?
+        // Classic fork copies the DATA (Pages).
+        // Since we are NOT doing COW yet, we must Deep Copy Pages.
         
-        // [Deep Copy] User Space: Index 1 (Code/Data), Index 3 (Stack)
-        // Child process needs its own independent memory for these regions.
-        if (i == 1 || i == 3) {
-            
-            // A. Allocate new Page Table
-            // TODO: Implement cleanup on failure
-            page_table* dst_table = (page_table*)pmm_alloc_block();
-            if (!dst_table) return 0;
-            
-            // [Important] Initialize table
-            memset(dst_table, 0, sizeof(page_table));
+        // A. Allocate New Table
+        uint32_t table_phys = pmm_alloc_block();
+        if (!table_phys) return 0;
+        
+        page_table* dst_table = (page_table*)P2V(table_phys);
+        memset(dst_table, 0, sizeof(page_table));
+        
+        // Link Table to Directory
+        uint32_t flags = src->m_entries[i] & 0x0FFF;
+        dir->m_entries[i] = table_phys | flags;
 
-            // Get source physical address (Assumes Identity Mapping)
-            page_table* src_table = (page_table*)(src->m_entries[i] & 0xFFFFF000);
+        // B. Copy Pages inside Table
+        uint32_t src_table_phys = src->m_entries[i] & 0xFFFFF000;
+        page_table* src_table = (page_table*)P2V(src_table_phys);
 
-            // B. Link in Directory
-            // Inherit flags (User/Write, etc.) from parent
-            uint32_t flags = src->m_entries[i] & 0x0FFF;
-            dir->m_entries[i] = (uint32_t)dst_table | flags;
+        for (int j = 0; j < 1024; j++) {
+            if (src_table->m_entries[j] & I86_PTE_PRESENT) {
+                // Allocate New Frame
+                uint32_t frame_phys = pmm_alloc_block();
+                if (!frame_phys) return 0;
 
-            // C. Iterate Pages inside the table
-            for (int j = 0; j < PAGES_PER_TABLE; j++) {
-                // If page is not present, skip
-                if (!(src_table->m_entries[j] & I86_PTE_PRESENT)) continue;
+                // Copy Data
+                uint32_t src_frame_phys = src_table->m_entries[j] & 0xFFFFF000;
+                copy_page_physical(src_frame_phys, frame_phys);
 
-                // [Smart Clone]
-                // If it's a USER page (Stack), we must Deep Copy it (Private to process).
-                // If it's a KERNEL page (Identity Map), we must Share it (Global).
-                if (src_table->m_entries[j] & I86_PTE_USER) {
-                    // --- Deep Copy (User Stack) ---
-                    
-                    // 1. Source Physical Address
-                    uint32_t phys_src = src_table->m_entries[j] & 0xFFFFF000;
-                    
-                    // 2. Allocate new frame for Child
-                    uint32_t phys_dst = pmm_alloc_block();
-                    if (!phys_dst) return 0; 
-
-                    // 3. Copy Data (Phys -> Phys)
-                    copy_page_physical(phys_src, phys_dst);
-
-                    // 4. Map into Child Table
-                    uint32_t pte_flags = src_table->m_entries[j] & 0x0FFF;
-                    dst_table->m_entries[j] = phys_dst | pte_flags;
-                } else {
-                    // --- Share (Kernel Identity Map) ---
-                    // Just copy the entry. Point to the SAME physical frame.
-                    dst_table->m_entries[j] = src_table->m_entries[j];
-                }
+                // Map in New Table
+                uint32_t pte_flags = src_table->m_entries[j] & 0x0FFF;
+                dst_table->m_entries[j] = frame_phys | pte_flags;
             }
         }
-        
-        // [Shared] Kernel Space: Index 0 (Kernel Code), Index 2 (Kernel Heap)
-        // Everything else is shared by default to keep kernel state synchronized.
-        else {
-            dir->m_entries[i] = kernel_directory->m_entries[i];
-        }
     }
-    return dir;
+
+    return dir; // Should return Virtual Address or Physical?
+                // The caller expects Virtual address to load into CR3?
+                // NO, CR3 needs PHYSICAL. 
+                // Wait, this function returns a pointer to struct... normally virtual.
+                // But loading CR3 requires V2P translation.
+    return dir; 
 }
 
+
 void vmm_enable_paging() {
-    // 1. Load CR3 with the address of the page directory
-    __asm__ volatile("mov %0, %%cr3" :: "r"(kernel_directory));
-
-    // 2. Read CR0, set the Paging Bit (Bit 31), and write it back
-    uint32_t cr0;
-    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
-    cr0 |= 0x80000000; // Enable Paging
-    __asm__ volatile("mov %0, %%cr0" :: "r"(cr0));
-
-    print_string("VMM: Paging Enabled!\n");
+    // Paging is already enabled by head.asm.
+    // We just update CR3 if needed.
+    // For now, do nothing or just reload.
+    // To reload kernel_directory:
+    // uint32_t phys = V2P((uint32_t)kernel_directory);
+    // __asm__ volatile("mov %0, %%cr3" :: "r"(phys));
 }

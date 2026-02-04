@@ -15,7 +15,7 @@
 
 extern uint32_t _kernel_end;
 
-#define VIDEO_MEMORY 0xb8000
+#define VIDEO_MEMORY 0xC00B8000
 #define MAX_ROWS 25
 #define MAX_COLS 80
 #define WHITE_ON_BLACK 0x0f
@@ -312,15 +312,16 @@ extern void task_b();
 /* --- Main Entry Point --- */
 
 void main()
-{
+{   
     clear_screen();
-
+    
+    // while(1);
     // 1. Initial messages
     print_string("Phase 1: Bootloader Fixed.\n");
     print_string("Phase 2: Kernel Loaded Successfully.\n");
     print_string("Phase 3: Newline support is now ACTIVE!\n");
     print_string("Phase 4: Scrolling test initiated...\n");
-
+    // while(1);
     // 2. Fill the screen to trigger scrolling
     // We print many lines to force the text to go beyond row 24.
     int i = 0;
