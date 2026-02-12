@@ -75,6 +75,30 @@ void vmm_enable_paging();
 extern page_directory* kernel_directory;
 
 // Clone a directory (Deep Copy for User Space)
-page_directory* vmm_clone_directory(page_directory* src);
+// Returns the Physical Address of the new Directory (for CR3)
+uint32_t vmm_clone_directory(page_directory* src);
+
+// Map a specific page
+int vmm_map_page(uint32_t virt, uint32_t phys, uint32_t flags);
+
+// Map a specific page in a specific directory
+int vmm_map_page_in_dir(page_directory* dir, uint32_t virt, uint32_t phys, uint32_t flags);
+
+// Check if a virtual address is mapped in the directory
+int vmm_is_mapped(page_directory* dir, uint32_t virt);
+
+// --- Address Translation Helpers ---
+
+#define KERNEL_VIRT_BASE 0xC0000000
+
+// Convert Physical Address to Virtual Address (Simple addition)
+static inline uint32_t P2V(uint32_t phys) {
+    return phys + KERNEL_VIRT_BASE;
+}
+
+// Convert Virtual Address to Physical Address (Simple subtraction)
+static inline uint32_t V2P(uint32_t virt) {
+    return virt - KERNEL_VIRT_BASE;
+}
 
 #endif

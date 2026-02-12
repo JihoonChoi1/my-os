@@ -44,16 +44,16 @@ void set_idt()
   // Register the handler for Interrupt 14 (Page Fault)
   set_idt_gate(14, (uint32_t)isr14);
   
-  // Register the handler for Keyboard    // IRQ 0 (Timer) -> INT 32
-    set_idt_gate(32, (uint32_t)irq0);
-    // IRQ 1 (Keyboard) -> INT 33
-    set_idt_gate(33, (uint32_t)irq1);
+  // Register the handler for Timer    // IRQ 0 (Timer) -> INT 32
+  set_idt_gate(32, (uint32_t)irq0);
+  // IRQ 1 (Keyboard) -> INT 33
+  set_idt_gate(33, (uint32_t)irq1);
 
-    // Register System Call Handler (INT 0x80 = 128)
-    set_idt_gate(128, (uint32_t)isr128);
-    // Critical: Set DPL=3 (User Privilege)
-    // 0xEF = 1110 1110 (P=1, DPL=11, Type=1111)
-    idt[128].flags = 0xEF; 
+  // Register System Call Handler (INT 0x80 = 128)
+  set_idt_gate(128, (uint32_t)isr128);
+  // Critical: Set DPL=3 (User Privilege)
+  // 0xEF = 1110 1110 (P=1, DPL=11, Type=1111)
+  idt[128].flags = 0xEF; 
 
   // Execute "lidt" instruction (Load IDT)
   // Using inline assembly to execute assembly instructions within C code.

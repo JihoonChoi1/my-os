@@ -23,6 +23,9 @@ void kheap_init() {
     heap_start = (kernel_end_addr + 0x1000) & 0xFFFFF000;
     heap_end = heap_start + KHEAP_INITIAL_SIZE;
 
+    // Reserve Heap Memory in PMM to prevent overlap!
+    pmm_deinit_region(V2P(heap_start), KHEAP_INITIAL_SIZE);
+
     // 2. Initialize the first block
     free_list = (header_t*)heap_start;
     free_list->size = KHEAP_INITIAL_SIZE - sizeof(header_t);

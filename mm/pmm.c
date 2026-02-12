@@ -232,3 +232,19 @@ void pmm_print_stats() {
     print_dec(total_memory_blocks);
     print_string(" blocks\n");
 }
+
+// Reserve a specific memory region (Mark as used)
+void pmm_deinit_region(uint32_t start_addr, uint32_t size) {
+    uint32_t align = start_addr / PMM_BLOCK_SIZE;
+    uint32_t blocks = size / PMM_BLOCK_SIZE;
+
+    if (size % PMM_BLOCK_SIZE) blocks++;
+
+    for (; blocks > 0; blocks--) {
+        if (!mmap_test(align)) {
+             mmap_set(align);
+             used_memory_blocks++;
+        }
+        align++;
+    }
+}

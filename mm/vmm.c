@@ -6,7 +6,7 @@ extern void print_string(char* str);
 extern void print_hex(uint32_t num);
 
 // --- Higher Half Kernel Constants ---
-#define KERNEL_VIRT_BASE 0xC0000000
+// KERNEL_VIRT_BASE is defined in vmm.h
 #define KERNEL_PAGE_INDEX (KERNEL_VIRT_BASE >> 22)
 
 // --- Boot Page Directory (Allocated in .bss by head.asm) ---
@@ -30,65 +30,68 @@ void *memset(void *s, int c, unsigned int n) {
     return s;
 }
 
-// Convert Virtual Address to Physical Address (Simple subtraction)
-// Only valid for Kernel Identity Map region (3GB -> 0GB)
-uint32_t V2P(uint32_t virt) {
-    return virt - KERNEL_VIRT_BASE;
-}
-
-// Convert Physical Address to Virtual Address (Simple addition)
-uint32_t P2V(uint32_t phys) {
-    return phys + KERNEL_VIRT_BASE;
-}
+// V2P and P2V are now static inline in vmm.h
 
 // Map a single virtual page to a physical frame
 // virt: Virtual Address (Must be Page Aligned)
 // phys: Physical Address (Must be Page Aligned)
 // flags: Page Flags (Present, RW, User, etc.)
-int vmm_map_page(uint32_t virt, uint32_t phys, uint32_t flags) {
+// Map a single virtual page to a physical frame in a specific directory
+int vmm_map_page_in_dir(page_directory* dir, uint32_t virt, uint32_t phys, uint32_t flags) {
     uint32_t pd_index = virt >> 22;
     uint32_t pt_index = (virt >> 12) & 0x03FF;
 
     // 1. Check if Page Table exists
-    if (!(kernel_directory->m_entries[pd_index] & I86_PTE_PRESENT)) {
+    if (!(dir->m_entries[pd_index] & I86_PTE_PRESENT)) {
         // Allocate a new Page Table
-        // PMM returns a physical address (e.g., 0x200000)
         uint32_t new_table_phys = pmm_alloc_block();
         if (!new_table_phys) return 0; // OOM
 
-        // We need to access this new table to clear it.
-        // Since we map all physical RAM to 0xC0xxxxxx (conceptually),
-        // we can access it via P2V(new_table_phys).
         page_table* new_table_virt = (page_table*)P2V(new_table_phys);
         memset(new_table_virt, 0, sizeof(page_table));
 
         // Register in Directory
-        // The Entry must store the PHYSICAL address of the table
         uint32_t pde_flags = I86_PTE_PRESENT | I86_PTE_WRITABLE;
         if (flags & I86_PTE_USER) {
             pde_flags |= I86_PTE_USER;
         }
-        kernel_directory->m_entries[pd_index] = new_table_phys | pde_flags;
+        dir->m_entries[pd_index] = new_table_phys | pde_flags;
     }
 
     // 2. Get the Page Table
-    // The entry contains the Physical Address of the table.
-    uint32_t table_phys = kernel_directory->m_entries[pd_index] & 0xFFFFF000;
+    uint32_t table_phys = dir->m_entries[pd_index] & 0xFFFFF000;
     page_table* table = (page_table*)P2V(table_phys);
 
     // 3. Set the Page Table Entry
     table->m_entries[pt_index] = phys | flags;
     
-    // Invalidate TLB for this address
-    // The CPU may have cached the previous state (e.g., "Not Present" or an old physical address)
-    // in the TLB. We execute 'invlpg' to force the CPU to forget this specific virtual address 
-    // and re-read the Page Table from RAM on the next access.
-    __asm__ volatile("invlpg (%0)" ::"r" (virt) : "memory");
+    // Invalidate TLB if we modified the current address space
+    uint32_t cr3;
+    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+    if (V2P((uint32_t)dir) == cr3) {
+        __asm__ volatile("invlpg (%0)" ::"r" (virt) : "memory");
+    }
 
     return 1;
 }
 
+// Map a single virtual page to a physical frame (in Kernel Directory)
+int vmm_map_page(uint32_t virt, uint32_t phys, uint32_t flags) {
+    return vmm_map_page_in_dir(kernel_directory, virt, phys, flags);
+}
 
+// Check if a virtual address is mapped in the directory
+int vmm_is_mapped(page_directory* dir, uint32_t virt) {
+    uint32_t pd_index = virt >> 22;
+    uint32_t pt_index = (virt >> 12) & 0x03FF;
+
+    if (!(dir->m_entries[pd_index] & I86_PTE_PRESENT)) return 0;
+
+    uint32_t table_phys = dir->m_entries[pd_index] & 0xFFFFF000;
+    page_table* table = (page_table*)P2V(table_phys);
+    
+    return (table->m_entries[pt_index] & I86_PTE_PRESENT);
+}
 void vmm_init() {
     // Note: Paging is ALREADY Enabled by head.asm!
     // kernel_directory is already pointing to 3GB Virtual Address of BootPageDirectory.
@@ -147,7 +150,8 @@ void copy_page_physical(uint32_t src, uint32_t dest) {
 
 
 // Clone Directory (Updated for Higher Half)
-page_directory* vmm_clone_directory(page_directory* src) {
+// Returns Physical Address (for CR3)
+uint32_t vmm_clone_directory(page_directory* src) {
     // Allocate new directory (Physical)
     uint32_t dir_phys = pmm_alloc_block();
     if (!dir_phys) return 0;
@@ -203,12 +207,7 @@ page_directory* vmm_clone_directory(page_directory* src) {
         }
     }
 
-    return dir; // Should return Virtual Address or Physical?
-                // The caller expects Virtual address to load into CR3?
-                // NO, CR3 needs PHYSICAL. 
-                // Wait, this function returns a pointer to struct... normally virtual.
-                // But loading CR3 requires V2P translation.
-    return dir; 
+    return dir_phys; // Return Physical Address
 }
 
 

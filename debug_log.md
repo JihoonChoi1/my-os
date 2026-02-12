@@ -142,14 +142,14 @@ To isolate the exact line causing the crash, I inserted infinite loops (`while(1
         - `Src[0]`: Valid (`0x118xxx`).
         - `Dst[0]`: Valid (`0x118xxx`). **(Confusing: Logic seemed correct)**.
         - **Clue:** The `Clone Dir` Address itself was `0x523000` (~5MB).
-- **Root Cause:** **PMM/VMM Aliasing**. The VMM initialization (`vmm_init`) statically mapped physical addresses **4MB-8MB** for User Text usage. However, it *did not allocate* these frames from the PMM.
-    - **PMM:** Believed 5MB was "Free".
-    - **VMM:** Believed 5MB was "User Space".
-    - **Conflict:** PMM allocated 5MB (`0x523000`) for the **Page Directory**. Later, operations targeting the User Space (4MB+) overwrote this memory region, corrupting the Page Directory structure (specifically erasing the Kernel Mappings at Index 0).
-- **Resolution:**
-    1.  **PMM Reservation:** Updated `pmm_init` to reserve **0-16MB** as "Used". Only high memory (16MB+) is now allocated dynamically.
-    2.  **Identity Mapping Extension:** Updated `vmm_init` to Identity Map up to 128MB, allowing the kernel to access high-memory frames.
-    3.  **Outcome:** Triple Fault resolved. `fork()` and `exec()` now function stably.
+    4.  **Root Cause:** **PMM/VMM Aliasing**. The VMM initialization (`vmm_init`) statically mapped physical addresses **4MB-8MB** for User Text usage. However, it *did not allocate* these frames from the PMM.
+        - **PMM:** Believed 5MB was "Free".
+        - **VMM:** Believed 5MB was "User Space".
+        - **Conflict:** PMM allocated 5MB (`0x523000`) for the **Page Directory**. Later, operations targeting the User Space (4MB+) overwrote this memory region, corrupting the Page Directory structure (specifically erasing the Kernel Mappings at Index 0).
+    5.  **Resolution:**
+        1.  **PMM Reservation:** Updated `pmm_init` to reserve **0-16MB** as "Used". Only high memory (16MB+) is now allocated dynamically.
+        2.  **Identity Mapping Extension:** Updated `vmm_init` to Identity Map up to 128MB, allowing the kernel to access high-memory frames.
+        3.  **Outcome:** Triple Fault resolved. `fork()` and `exec()` now function stably.
 
 ---
 
@@ -254,4 +254,59 @@ To isolate the exact line causing the crash, I inserted infinite loops (`while(1
   ```
 - **Outcome:** The PMM initialized correctly, reserving only the actual physical memory used by the kernel (approx 1MB range), and the system boot continued without corruption.
 
+---
 
+# Debugging Log: User Mode Stack Alignment & Page Fault
+
+**Date:** 2026-02-10
+**Module:** User Mode (`kernel/process.c`, `programs/shell.c`), GCC Toolchain
+**Severity:** Critical (User Program Crash)
+
+## 1. Issue Description
+- **Symptom:** A Page Fault occurred at `0xF01000` immediately after launching `shell.elf` (User Mode).
+- **Observation:**
+    - `0xF01000` is the start of an unmapped page (User Stack is mapped at `0xF00000`~`0xF00FFF`).
+    - Using `while(1)` binary search confirmed the crash happens exactly at the entry of `shell.o`.
+    - Even after changing the initial `ESP` to `0xF00FFF` (inside the valid page), the Page Fault persisted at the same address (`0xF01000`).
+    - This was puzzling because `main()` in `shell.c` takes no arguments (`void main()`), so logically it shouldn't be reading from the stack.
+
+## 2. Debugging Process: Disassembling the Truth
+To understand why the CPU was accessing memory I didn't tell it to, I analyzed the compiler-generated assembly.
+
+1.  **Command:** `x86_64-elf-gcc -ffreestanding -m32 -c programs/shell.c -o shell.o`
+2.  **Disassembly:** `x86_64-elf-objdump -d -M intel shell.o`
+3.  **Result (The "Smoking Gun"):**
+    ```nasm
+    00000000 <main>:
+       0:   8d 4c 24 04             lea    ecx,[esp+0x4]
+       4:   83 e4 f0                and    esp,0xfffffff0
+       7:   ff 71 fc                push   DWORD PTR [ecx-0x4]  <-- The crashing instruction
+    ```
+
+## 3. Root Cause Analysis: GCC's Hidden "Prologue"
+- **The "Why":** Modern x86 CPUs require the Stack Pointer (`ESP`) to be **16-byte aligned** to efficiently execute SIMD instructions (like `SSE`, `movaps`). If not aligned, these instructions trigger a General Protection Fault.
+- **The "How":** GCC, by default, inserts a "Prologue" at the start of `main` to enforce this alignment.
+    1.  `lea ecx, [esp+4]`: Calculates the address where the "Return Address" *should* be.
+    2.  `and esp, -16`: Aligns the `ESP` downwards to the nearest 16-byte boundary.
+    3.  `push [ecx-4]`: Copies the 4-byte Return Address from the old stack position to the new aligned position.
+- **The Crash Mechanism:**
+    - **My Setup:** I initialized `ESP` to `0xF00FFF`.
+    - **The Instruction:** `push DWORD PTR [ecx-4]` tries to read 4 bytes from `0xF00FFF`.
+    - **Physical Reality:**
+        - Byte 1: `0xF00FFF` (Mapped, OK).
+        - Byte 2: `0xF01000` (Unmapped, **Page Fault**).
+        - Byte 3: `0xF01001` (Unmapped).
+        - Byte 4: `0xF01002` (Unmapped).
+    - **Conclusion:** The GCC prologue blindly assumed it could read a full 4-byte Return Address, causing a Cross-Page Read into invalid memory.
+- **The "Ghost" Data:**
+    - Since I enter User Mode via `IRET` (not `CALL`), there is no actual Return Address on the stack.
+    - GCC, assuming `main` is called like any C function, attempts to preserve this non-existent return address.
+    - It blindly reads from `[ESP]`, crashing into the unmapped page boundary.
+
+## 4. Resolution
+- **Fix:** Adjusted initial User `ESP` to **`0xF00FFC`**.
+- **Rationale:**
+    - By setting `ESP` to `0xF00FFC` (4-byte aligned), the `push` instruction reads exactly 4 bytes (`0xF00FFC`~`0xF00FFF`).
+    - These 4 bytes are fully within the mapped page, so the read succeeds (even if the value is garbage/zero).
+    - The "ghost" return address (garbage) is safely pushed to the aligned stack, preserving GCC's assumption without crashing.
+- **Outcome:** The shell launches successfully without crashing.

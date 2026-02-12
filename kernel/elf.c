@@ -1,6 +1,8 @@
 #include "elf.h"
 #include "../fs/simplefs.h"
 #include "../mm/kheap.h"
+#include "../mm/vmm.h"
+#include "../mm/pmm.h"
 
 // External printing functions
 extern void print_string(char *str);
@@ -72,7 +74,7 @@ uint32_t elf_load(char *filename) {
         // We only care about PT_LOAD segments
         if (phdr[i].p_type == PT_LOAD) {
             
-            print_string("[ELF] Loading Segment at 0x");
+            print_string("[ELF] Loading Segment at ");
             print_hex(phdr[i].p_vaddr);
             print_string(", File Size: ");
             print_hex(phdr[i].p_filesz);
@@ -81,14 +83,41 @@ uint32_t elf_load(char *filename) {
             print_string("\n");
 
             // Destination in memory (Virtual Address)
+            // ---------------------------------------------------------
+            // Dynamic Allocation Logic (Eager Loading)
+            // ---------------------------------------------------------
+            uint32_t start_page = phdr[i].p_vaddr & 0xFFFFF000;
+            uint32_t end_page = (phdr[i].p_vaddr + phdr[i].p_memsz + 4095) & 0xFFFFF000;
+
+            // Get Current Page Directory (CR3) to map into
+            uint32_t cr3;
+            __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+            page_directory* current_pd = (page_directory*)P2V(cr3);
+
+            for (uint32_t vaddr = start_page; vaddr < end_page; vaddr += 4096) {
+                // Check if already mapped to avoid overwriting existing data
+                // (e.g. if segments overlap on the same page)
+                if (!vmm_is_mapped(current_pd, vaddr)) {
+                    uint32_t frame = pmm_alloc_block();
+                    if (!frame) {
+                        print_string("[ELF] Error: OOM during segment allocation\n");
+                        return 0; // Create fail
+                    }
+                    
+                    // Map: Present, RW, User
+                    vmm_map_page_in_dir(current_pd, vaddr, frame, I86_PTE_PRESENT | I86_PTE_WRITABLE | I86_PTE_USER);
+                    
+                    // Zero the page (Important for BSS and security)
+                    memset((void*)vaddr, 0, 4096);
+                }
+            }
+            
             char *dest = (char*)phdr[i].p_vaddr;
             
             // Source in file buffer
             char *src = file_buffer + phdr[i].p_offset;
-
             // Copy file data to memory
             memory_copy(src, dest, phdr[i].p_filesz);
-
             // Zero out remaining memory (BSS section usually)
             if (phdr[i].p_memsz > phdr[i].p_filesz) {
                 my_memset(dest + phdr[i].p_filesz, 0, phdr[i].p_memsz - phdr[i].p_filesz);
@@ -101,9 +130,8 @@ uint32_t elf_load(char *filename) {
     // Cleanup
     kfree(file_buffer);
 
-    print_string("[ELF] Loaded successfully. Entry point: 0x");
+    print_string("[ELF] Loaded successfully. Entry point: ");
     print_hex(entry_point);
     print_string("\n");
-
     return entry_point;
 }

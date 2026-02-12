@@ -426,13 +426,13 @@ void main()
     
     // Initialize Multitasking (Creates PID 0)
     init_multitasking();
-    while(1);
+    //while(1);
     // --- Create PID 1: Shell Task ---
     // Instead of transforming the Kernel (PID 0) into Shell via enter_user_mode,
     // we spawn a clean new task (PID 1) to be the Shell.
     // PID 0 will remain as the Idle Process.
     create_task(launch_shell);
-
+    
     // --- Enable Interrupts ---
     // This starts the Timer (IRQ 0), which will trigger the Scheduler.
     // The Scheduler will then pick PID 1 (launch_shell) to run.

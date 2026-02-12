@@ -20,6 +20,9 @@ void pmm_init(uint32_t kernel_end);
 uint32_t pmm_alloc_block();
 void pmm_free_block(uint32_t addr);
 
+// Reserve a specific memory region (Mark as used)
+void pmm_deinit_region(uint32_t start_addr, uint32_t size);
+
 // Debug function to print memory stats
 void pmm_print_stats();
 
