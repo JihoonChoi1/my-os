@@ -149,7 +149,7 @@ void copy_page_physical(uint32_t src, uint32_t dest) {
 }
 
 
-// Clone Directory (Updated for Higher Half)
+// Clone Directory (Updated for copy-on-write fork)
 // Returns Physical Address (for CR3)
 uint32_t vmm_clone_directory(page_directory* src) {
     // Allocate new directory (Physical)
@@ -166,14 +166,12 @@ uint32_t vmm_clone_directory(page_directory* src) {
         dir->m_entries[i] = src->m_entries[i];
     }
 
-    // 2. Clone User Space (0 ~ 767) - DEEP COPY
+    // 2. Clone User Space (0 ~ 767) - COPY-ON-WRITE
     for (int i = 0; i < 768; i++) {
         if (!(src->m_entries[i] & I86_PTE_PRESENT)) continue;
 
-        // Found a User Page Table. We need to copy it?
-        // Wait, for 'fork', do we copy the TABLE or the PAGES?
-        // Classic fork copies the DATA (Pages).
-        // Since we are NOT doing COW yet, we must Deep Copy Pages.
+        // Found a User Page Table. 
+        // We allocate a new Page Table for the child, but SHARE the pages.
         
         // A. Allocate New Table
         uint32_t table_phys = pmm_alloc_block();
@@ -186,25 +184,45 @@ uint32_t vmm_clone_directory(page_directory* src) {
         uint32_t flags = src->m_entries[i] & 0x0FFF;
         dir->m_entries[i] = table_phys | flags;
 
-        // B. Copy Pages inside Table
+        // B. Process Pages inside Table
         uint32_t src_table_phys = src->m_entries[i] & 0xFFFFF000;
         page_table* src_table = (page_table*)P2V(src_table_phys);
 
         for (int j = 0; j < 1024; j++) {
             if (src_table->m_entries[j] & I86_PTE_PRESENT) {
-                // Allocate New Frame
-                uint32_t frame_phys = pmm_alloc_block();
-                if (!frame_phys) return 0;
-
-                // Copy Data
-                uint32_t src_frame_phys = src_table->m_entries[j] & 0xFFFFF000;
-                copy_page_physical(src_frame_phys, frame_phys);
-
-                // Map in New Table
+                // Get Frame and Flags
+                uint32_t frame_phys = src_table->m_entries[j] & I86_PTE_FRAME;
                 uint32_t pte_flags = src_table->m_entries[j] & 0x0FFF;
+
+                // Check if Writable
+                if (pte_flags & I86_PTE_WRITABLE) {
+                    // Mark Read-Only and set COW bit
+                    pte_flags &= ~I86_PTE_WRITABLE;
+                    pte_flags |= I86_PTE_COW;
+                    
+                    // Update SOURCE Table (Parent also loses Write permission!)
+                    src_table->m_entries[j] = frame_phys | pte_flags;
+                }
+
+                // Increment Reference Count
+                pmm_inc_ref(frame_phys);
+
+                // Map in DEST Table (Child)
                 dst_table->m_entries[j] = frame_phys | pte_flags;
             }
         }
+    }
+    
+    // FLUSH TLB:
+    // We modified the Source Page Table (removed Write permissions).
+    // If we are currently running in 'src' directory, we must reload CR3
+    // to apply these changes immediately.
+    uint32_t current_cr3;
+    __asm__ volatile("mov %%cr3, %0" : "=r"(current_cr3));
+    
+    // src is Virtual, convert to Physical to compare
+    if (V2P((uint32_t)src) == current_cr3) {
+        __asm__ volatile("mov %0, %%cr3" :: "r"(current_cr3));
     }
 
     return dir_phys; // Return Physical Address

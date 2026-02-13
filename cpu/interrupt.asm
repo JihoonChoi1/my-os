@@ -59,7 +59,9 @@ isr14:
     mov fs, ax
     mov gs, ax
 
+    push esp            ; Push pointer to regs (registers_err_t*)
     call page_fault_handler
+    add esp, 4          ; Pop pointer from stack (CDECL/STDCALL cleanup)
     
     pop gs
     pop fs

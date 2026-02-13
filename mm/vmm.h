@@ -15,6 +15,7 @@
 #define I86_PTE_DIRTY         0x40  // Page has been written to
 #define I86_PTE_PAT           0x80  // Page Attribute Table
 #define I86_PTE_GLOBAL        0x100 // Global Page (ignored in 4KB)
+#define I86_PTE_COW           0x200 // Available for OS (Bit 9) - Copy On Write
 #define I86_PTE_FRAME         0xFFFFF000 // Frame address mask (Top 20 bits)
 
 // Paging Structure Sizes

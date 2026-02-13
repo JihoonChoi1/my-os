@@ -245,13 +245,55 @@ int main(int argc, char *argv[])
         fclose(shell_fp);
     }
     
+    // Write fork_cow.elf Program Inode
+    printf("Writing fork_cow.elf Inode...\n");
+    FILE *cow_fp = fopen("programs/fork_cow.elf", "rb");
+    if (!cow_fp) {
+        printf("WARNING: programs/fork_cow.elf not found. Skipping.\n");
+    } else {
+        fseek(cow_fp, 0, SEEK_END);
+        uint32_t cow_size = ftell(cow_fp);
+        fseek(cow_fp, 0, SEEK_SET);
+        
+        printf("fork_cow.elf size: %d bytes\n", cow_size);
+
+        sfs_inode cow_inode;
+        memset(&cow_inode, 0, sizeof(cow_inode));
+        cow_inode.used = 1;
+        strcpy(cow_inode.filename, "fork_cow.elf");
+        cow_inode.size = cow_size;
+        
+        uint32_t needed_blocks = (cow_size + PROJ_BLOCK_SIZE - 1) / PROJ_BLOCK_SIZE;
+        
+        for (uint32_t i = 0; i < needed_blocks; i++) {
+            cow_inode.blocks[i] = next_free_block + i;
+        }
+
+        // Write Inode to Inode Table (Sector 19)
+        // Index 3 (Fourth inode)
+        fseek(disk_fp, sb.inode_table_block * PROJ_BLOCK_SIZE + 3 * sizeof(sfs_inode), SEEK_SET);
+        fwrite(&cow_inode, 1, sizeof(cow_inode), disk_fp);
+
+        // Write Data
+        printf("Writing fork_cow.elf Data...\n");
+        uint8_t *cow_data = (uint8_t *)malloc(cow_size);
+        fread(cow_data, 1, cow_size, cow_fp);
+
+        fseek(disk_fp, next_free_block * PROJ_BLOCK_SIZE, SEEK_SET);
+        fwrite(cow_data, 1, cow_size, disk_fp);
+
+        free(cow_data);
+        next_free_block += needed_blocks;
+        fclose(cow_fp);
+    }
+    
     printf("Updating Inode Bitmap...\n");
 
     // Move to sector 18 where the bitmap is
     fseek(disk_fp, sb.inode_bitmap_block * PROJ_BLOCK_SIZE, SEEK_SET);
 
     uint8_t bitmap[512] = {0}; 
-    bitmap[0] = 0x07; // 0000 0111 -> 3 inodes used (kernel, hello, shell)
+    bitmap[0] = 0x0F; // 0000 1111 -> 4 inodes used (kernel, hello, shell, fork_cow)
 
     fwrite(bitmap, 1, 512, disk_fp);
 

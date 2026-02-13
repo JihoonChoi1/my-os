@@ -15,6 +15,9 @@ static uint8_t memory_bitmap[BITMAP_SIZE];
 static uint32_t total_memory_blocks = 0;
 static uint32_t used_memory_blocks = 0;
 
+#define MAX_BLOCKS (BITMAP_SIZE * 8)
+static uint8_t memory_refcounts[MAX_BLOCKS]; // 256KB for 1GB RAM
+
 // Helper: Set bit (Mark Used)
 void mmap_set(uint32_t bit) {
     memory_bitmap[bit / 8] |= (1 << (bit % 8));
@@ -51,6 +54,11 @@ void pmm_init(uint32_t kernel_end) {
     // mark all as USED first (safety).
     for (int i = 0; i < BITMAP_SIZE; i++) {
         memory_bitmap[i] = 0xFF; // All used
+    }
+    
+    // Clear Refcounts
+    for (int i = 0; i < MAX_BLOCKS; i++) {
+        memory_refcounts[i] = 0;
     }
 
     // Read E820 Map from 0x8000
@@ -100,6 +108,7 @@ void pmm_init(uint32_t kernel_end) {
             for (uint32_t j = start_block; j < end_block; j++) {
                 if (j < BITMAP_SIZE * 8) { // Safety check
                     mmap_unset(j);
+                    memory_refcounts[j] = 0; // Explicitly ensure refcount is 0 for free blocks
                 }
             }
         }
@@ -153,6 +162,7 @@ void pmm_init(uint32_t kernel_end) {
     //while(1);
     for (uint32_t i = 0; i < reserved_limit_block; i++) {
         mmap_set(i);
+        memory_refcounts[i] = 1; // Mark as owned by Kernel
     }
     print_dec(total_memory_blocks);
     print_string("\n");
@@ -183,6 +193,7 @@ void pmm_init(uint32_t kernel_end) {
     if (end_reserved_block > start_reserved_block) {
         for (uint32_t i = start_reserved_block; i < end_reserved_block; i++) {
              mmap_set(i);
+             memory_refcounts[i] = 1; // Mark as owned by Kernel Stack
         }
         print_string("PMM: Reserved Stack from ");
         print_hex(stack_bottom);
@@ -213,6 +224,7 @@ uint32_t pmm_alloc_block() {
     }
     
     mmap_set(frame);
+    memory_refcounts[frame] = 1; // Initialize Refcount
     used_memory_blocks++;
     
     uint32_t addr = frame * PMM_BLOCK_SIZE;
@@ -221,8 +233,32 @@ uint32_t pmm_alloc_block() {
 
 void pmm_free_block(uint32_t addr) {
     uint32_t frame = addr / PMM_BLOCK_SIZE;
-    mmap_unset(frame);
-    used_memory_blocks--;
+    
+    if (memory_refcounts[frame] > 0) {
+        memory_refcounts[frame]--;
+    }
+    
+    // Only actually free if refcount reaches 0
+    if (memory_refcounts[frame] == 0) {
+        mmap_unset(frame);
+        used_memory_blocks--;
+    }
+}
+
+// Reference Counting API
+void pmm_inc_ref(uint32_t addr) {
+    uint32_t frame = addr / PMM_BLOCK_SIZE;
+    if (frame < MAX_BLOCKS) {
+        memory_refcounts[frame]++;
+    }
+}
+
+uint8_t pmm_get_ref(uint32_t addr) {
+    uint32_t frame = addr / PMM_BLOCK_SIZE;
+    if (frame < MAX_BLOCKS) {
+        return memory_refcounts[frame];
+    }
+    return 0;
 }
 
 void pmm_print_stats() {
@@ -243,6 +279,7 @@ void pmm_deinit_region(uint32_t start_addr, uint32_t size) {
     for (; blocks > 0; blocks--) {
         if (!mmap_test(align)) {
              mmap_set(align);
+             memory_refcounts[align] = 1; // Mark as used manually
              used_memory_blocks++;
         }
         align++;

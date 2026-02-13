@@ -23,6 +23,10 @@ void pmm_free_block(uint32_t addr);
 // Reserve a specific memory region (Mark as used)
 void pmm_deinit_region(uint32_t start_addr, uint32_t size);
 
+// Reference Counting API
+void pmm_inc_ref(uint32_t addr);
+uint8_t pmm_get_ref(uint32_t addr);
+
 // Debug function to print memory stats
 void pmm_print_stats();
 
