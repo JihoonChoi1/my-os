@@ -25,7 +25,7 @@ LDFLAGS = --oformat binary -m elf_i386 -T kernel.ld
 # Main Target
 # --------------------------------------------------------
 run: disk.img
-	qemu-system-x86_64 -d int,cpu_reset -no-reboot -drive format=raw,file=disk.img
+	qemu-system-x86_64 -no-reboot -drive format=raw,file=disk.img
 
 
  

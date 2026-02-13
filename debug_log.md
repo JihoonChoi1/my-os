@@ -133,7 +133,7 @@ To isolate the exact line causing the crash, I inserted infinite loops (`while(1
 - **Symptom:** Even after fixing the ESP issue, executing `exec` caused a Triple Fault (System Reboot).
 - **Investigation:** 
     1.  **QEMU Debugging:** Used `-d int,cpu_reset -no-reboot` to capture the crash state.
-        ![Triple Fault Log (QEMU)](triple_fault_log.jpg)
+        ![Triple Fault Log (QEMU)](debug_logs/2026-01-26/triple_fault_log.jpg)
     2.  **State Analysis:** 
         - `CR3`: Pointed to the NEW Page Directory (Child Process).
         - `CR2`: `0x10xxxx` (Kernel Code Access).
@@ -161,6 +161,7 @@ To isolate the exact line causing the crash, I inserted infinite loops (`while(1
 
 ## 1. Issue: Page Fault during VMM Initialization
 - **Symptom:** The kernel immediately triggered a Page Fault at `0xC011D000` during initialization.
+    ![VMM Initialization Page Fault](debug_logs/2026-02-04/2026.02.04.png)
 
 ## 2. Debugging Process: Tracing the Phantom Crash
 1.  **Narrowing Down:** Inserted `while(1)` loops to locate the failure point. The crash occurred specifically at the line:
@@ -221,6 +222,7 @@ To isolate the exact line causing the crash, I inserted infinite loops (`while(1
 ## 1. Issue Description
 - **Symptom:** After fixing the VMM crash, the kernel printed "PMM: Reserved Low Memory up to Kernel End" and then silently shutted down.
 - **Observation:** The expected log from the subsequent code block was missing, indicating a crash or state corruption immediately after the reservation loop.
+    ![PMM Memory Corruption Log](debug_logs/2026-02-04/PMM_Memory_Corruption.png)
 
 ## 2. Debugging Process
 1.  **Binary Search:** Inserted `print_dec` and `while(1)` calls to inspect variable values.
@@ -310,3 +312,109 @@ To understand why the CPU was accessing memory I didn't tell it to, I analyzed t
     - These 4 bytes are fully within the mapped page, so the read succeeds (even if the value is garbage/zero).
     - The "ghost" return address (garbage) is safely pushed to the aligned stack, preserving GCC's assumption without crashing.
 - **Outcome:** The shell launches successfully without crashing.
+
+---
+
+# Debugging Log: COW Memory Corruption Due to Write Protection
+
+**Date:** 2026-02-13
+**Module:** Memory Manager (VMM, COW), CPU Architecture (CR0 Register)
+**Severity:** Critical (Parent Process Memory Corruption)
+
+## 1. Issue Description
+- **Symptom:** Executing `exec hello.elf` caused the child process to run successfully, but the system crashed with a Page Fault immediately after the child exited, failing to return to the shell.
+- **Hypothesis:** Since the code finished but return failed, it seemed like a Scheduler or Context Switch bug.
+- **Initial Attempt:** Using `while(1)` loops was ineffective because the crash happened during the delicate transition from Child to Parent.
+
+## 2. Debugging Process: Capturing the Crash State
+1.  **QEMU Debugging:** Used `qemu-system-x86_64 -d int,cpu_reset -no-reboot` to freeze the CPU state at the exact moment of the crash.
+2.  **Crash Analysis:**
+    ![Crash State Log](debug_logs/2026-02-13/2026-02-13_CrashScreen.png)
+    - **CR2 (Fault Address):** `0x467C0BA1` (Invalid/Unmapped Address)
+    - **CR3 (Page Directory):** `0x0027F000` (Verified to be the Shell's Page Directory)
+    - **EIP (Instruction Pointer):** `0x00400299`
+    ![Register Values](debug_logs/2026-02-13/2026.02.13_register_values.png)
+
+3.  **Address Verification:**
+    - Confirmed via `objdump` that `0x400299` is a valid address within `shell.elf`.
+    - However, the instruction at `0x400299` in `shell.elf` should NOT be accessing `0x467C0BA1`. There was no logical reason for this access in the source code.
+    ![Shell Disassembly](debug_logs/2026-02-13/2026-02-13_shell.elf.png)
+
+## 3. Root Cause Analysis: The Smoking Gun
+- **Contradiction:** The code address (`EIP`) was valid for Shell, but the behavior (accessing `CR2`) was impossible for Shell's code.
+- **Hypothesis:** The memory at `0x400299` must have been corrupted/overwritten by `hello.elf`.
+- **Cross-Examination:**
+    - I checked `hello.elf`'s disassembly at the same offset (`0x40029x`).
+    ![Hello Disassembly](debug_logs/2026-02-13/2026-02-13_hello.elf.png)
+    - Found instruction sequence: `45 fc 01 8b 55 fc 8b 45`
+    - **Decoded Instruction:** `add DWORD PTR [ebx+0x458bfc55], ecx`
+    - **Manual Verification:**
+        - `EBX` at crash: `0x00F00F4C`
+        - Calculation: `0x00F00F4C` + `0x458BFC55` = **`0x467C0BA1`**
+    - **Conclusion:** **Exact Match!** The Shell was executing `hello.elf`'s code logic inside its own address space.
+
+- **The "Why":**
+    - **COW Failure:** The Parent (Shell) and Child (Hello) shared the same physical frame (COW).
+    - **Kernel Trap:** When `exec` loaded `hello.elf`, it wrote to this shared frame.
+    - **Missing Protection:** The Kernel (Ring 0) ignored the Read-Only bit because the **Write Protect (WP)** bit in the **CR0** control register was **0** (Disabled).
+    - **Result:** The Kernel overwrote the shared physical frame directly, destroying the Parent's code.
+
+## 4. Resolution
+- **Fix:** Enabled the Write Protect (WP) bit in the CR0 register during kernel initialization.
+- **Implementation (head.asm):**
+    ```nasm
+    mov eax, cr0
+    or eax, 0x80010000 ; Set PG (Bit 31) and WP (Bit 16)
+    mov cr0, eax
+    ```
+- **Outcome:** The CPU now strictly enforces Read-Only protection even for the Kernel. `exec` triggers a Page Fault as intended, activating the COW mechanism to allocate a new private frame for the Child. The Shell creates a child, waits, and resumes successfully.
+
+
+---
+
+# Debugging Log: Kernel Heap Corruption in ELF Loader
+
+**Date:** 2026-02-13
+**Module:** Heap Manager (`mm/kheap.c`), ELF Loader (`kernel/elf.c`), ATA Driver (`drivers/ata.c`)
+**Severity:** Critical (Memory Corruption / Kernel Panic)
+
+## 1. Issue Description
+- **Symptom:** After successfully executing `hello.elf`, running a subsequent command like `exec fork_cow.elf` caused the kernel to panic with `KHEAP CORRUPTION DETECTED!`.
+- **Observation:** The failure occurred inside `kmalloc` when trying to allocate memory for the second program. This indicated that the heap structure (metadata) had been damaged during the previous operations.
+    ![Heap Corruption Log](debug_logs/2026-02-13/2026-02-13_heap_corruption.png)
+
+## 2. Debugging Process: Tracing the Overflow
+1.  **Isolation:** The crash happened during `exec fork_cow.elf`, specifically when `elf_load` called `kmalloc`.
+2.  **Heap Inspection:** `kmalloc` traverses the free list and checks a `MAGIC` number in each block header. The panic meant a header was overwritten with garbage.
+3.  **Suspect:** The most recent heavy memory operation was loading `hello.elf`.
+4.  **Code Review (`kernel/elf.c`):**
+    ```c
+    // Calculating allocation size
+    char *file_buffer = (char*)kmalloc(inode.size);
+    // Reading file
+    fs_read_file(&inode, file_buffer);
+    ```
+5.  **Data Flow Analysis:**
+    - `inode.size`: The exact size of the file (e.g., 200 bytes).
+    - `kmalloc(200)`: Allocates a block slightly larger than 200 bytes and places a **Block Header** for the *next* free block immediately after it.
+    - `fs_read_file` -> `ata_read_sector`: The ATA driver reads data in **512-byte Chunks (Sectors)**.
+
+## 3. Root Cause Analysis: The Sector Size Mismatch
+- **Mechanism:**
+    - The file `hello.elf` was small (e.g., 200 bytes).
+    - `kmalloc` allocated memory for exactly 200 bytes.
+    - `ata_read_sector` read the full 512-byte sector into this buffer.
+    - **Buffer Overflow:** The remaining 312 bytes (garbage/padding from the disk sector) were written *past* the end of the allocated buffer.
+- **Impact:** This overflow overwrote the **Next Heap Block's Header** (Magic Number, Size, Links).
+- **Delayed Failure:** The corruption went unnoticed until `exec fork_cow.elf` called `kmalloc` again. The allocator tried to read the next block ("Is this block free?"), encountered the garbage header, and triggered the corruption panic.
+
+## 4. Resolution
+- **Fix:** Modified `elf_load` in `kernel/elf.c` to round up the allocation size to the nearest 512-byte alignment.
+- **Implementation:**
+    ```c
+    // Round up to 512 bytes (Sector Size)
+    uint32_t aligned_size = ((inode.size + 511) / 512) * 512;
+    char *file_buffer = (char*)kmalloc(aligned_size);
+    ```
+- **Outcome:** The buffer is now large enough to hold the full sector data (including padding). The ATA driver writes safely within bounds, preserving the heap integrity. Multiple `exec` calls now run firmly without corruption.
+

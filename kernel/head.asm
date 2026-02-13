@@ -62,9 +62,11 @@ _start:
     mov eax, (BootPageDirectory - KERNEL_VIRTUAL_BASE)
     mov cr3, eax
 
-    ; Enable Paging (CR0 bit 31)
+    ; Enable Paging (CR0 bit 31) AND Write Protect (CR0 bit 16)
+    ; Bit 31 (PG): Enable Paging
+    ; Bit 16 (WP): Write Protect (Force CPU to check Ring 0 writes to RO pages)
     mov eax, cr0
-    or eax, 0x80000000
+    or eax, 0x80010000 
     mov cr0, eax
 
     ; -------------------------------------------------------------------------

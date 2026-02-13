@@ -29,12 +29,13 @@ uint32_t elf_load(char *filename) {
         //while(1);
         return 0;
     }
-    // Allocate buffer for the entire file
-    // Ideally, we should read just the header first, but for simplicity
-    // with our current FS driver (which reads whole files easily), we read it all.
-    // WARNING: This assumes the file fits in the heap!
     
-    char *file_buffer = (char*)kmalloc(inode.size);
+    // Fix: SimpleFS reads in 512-byte chunks. If file size is not aligned,
+    // fs_read_file might overwrite the next heap block header.
+    // So the size should be rounded up to 512 bytes.
+    uint32_t aligned_size = ((inode.size + 511) / 512) * 512;
+    char *file_buffer = (char*)kmalloc(aligned_size);
+
     if (!file_buffer) {
         print_string("[ELF] Error: Out of memory for file buffer.\n");
         return 0;
