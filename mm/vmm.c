@@ -229,6 +229,43 @@ uint32_t vmm_clone_directory(page_directory* src) {
 }
 
 
+// Free a directory (for exit/wait)
+void vmm_free_directory(page_directory *dir) {
+    // Convert Virtual Address to Physical for PMM freeing later
+    uint32_t dir_phys = V2P((uint32_t)dir);
+
+    // Iterate User Space (0 ~ 767)
+    // Kernel Space (768+) is shared, so we DON'T free it!
+    for (int i = 0; i < 768; i++) {
+        if (dir->m_entries[i] & I86_PTE_PRESENT) {
+            // Found a User Page Table
+            uint32_t table_phys = dir->m_entries[i] & I86_PTE_FRAME;
+            page_table* table = (page_table*)P2V(table_phys);
+
+            // Iterate Pages inside Table
+            for (int j = 0; j < 1024; j++) {
+                if (table->m_entries[j] & I86_PTE_PRESENT) {
+                    uint32_t frame_phys = table->m_entries[j] & I86_PTE_FRAME;
+                    
+                    // Free the Frame
+                    // pmm_free_block handles refcounting:
+                    // If refcount > 1 (COW), it just decrements.
+                    // If refcount == 1, it actually frees the bit.
+                    pmm_free_block(frame_phys);
+                }
+            }
+            
+            // Free the Page Table itself
+            // Page Tables are owned by the process, not shared (except for Kernel tables which we skip)
+            pmm_free_block(table_phys);
+        }
+    }
+
+    // Free the Page Directory itself
+    pmm_free_block(dir_phys);
+}
+
+
 void vmm_enable_paging() {
     // Paging is already enabled by head.asm.
     // We just update CR3 if needed.

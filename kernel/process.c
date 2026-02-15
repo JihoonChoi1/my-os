@@ -49,97 +49,96 @@ void enter_user_mode(uint32_t entry_point)
         : "eax", "memory");
 }
 
-// Maximum processes
-#define MAX_PROCESSES 10
+#include "../mm/kheap.h"
 
-// Process Array (Static TCBs)
-static process_t processes[MAX_PROCESSES];
-static uint32_t current_pid = 0;
-static uint32_t process_count = 0;
+// Process List (Doubly Linked)
+static process_t *process_list = 0;
+static process_t *current_process = 0;
+static uint32_t next_pid = 0;
 
 extern void print_string(char *str);
 extern void print_dec(int n);
 extern void print_hex(uint32_t n);
+extern void memset(void *dest, int val, int len);
 
 // Initialize the process system
 void init_multitasking()
 {
-    // 0. Mark all processes as TERMINATED initially
-    for (int i = 0; i < MAX_PROCESSES; i++)
-    {
-        processes[i].state = PROCESS_TERMINATED;
-        processes[i].next = 0;
-        processes[i].parent_id = -1;
-    }
+    // 1. Allocate Kernel Process (PID 0)
+    process_list = (process_t*)kmalloc(sizeof(process_t));
+    memset(process_list, 0, sizeof(process_t));
 
-    // 1. The Kernel itself is Process 0
-    processes[0].id = 0;
-    processes[0].parent_id = -1; // Kernel has no parent
-    processes[0].state = PROCESS_RUNNING;
+    process_list->id = 0;
+    process_list->parent_id = -1; // Kernel has no parent
+    process_list->state = PROCESS_RUNNING;
 
     // Get current CR3
     uint32_t cr3;
     __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
-    processes[0].pd = (page_directory *)cr3;
+    process_list->pd = (page_directory *)cr3; // Physical Address
 
-    current_pid = 0;
-    process_count = 1;
+    process_list->next = 0;
+    process_list->prev = 0;
+
+    current_process = process_list;
+    next_pid = 1;
 
     print_string("Multitasking Initialized. Kernel is PID 0.\n");
 }
 
 // Setup a stack for a new task
-// Emulates the stack state as if an interrupt occurred:
-// PUSH EFLAGS -> PUSH CS -> PUSH EIP -> PUSHAD (Registers)
 void create_task(void (*function)())
 {
-    if (process_count >= MAX_PROCESSES)
-    {
-        print_string("Error: Max Processes Reached.\n");
+    process_t *new_task = (process_t*)kmalloc(sizeof(process_t));
+    if (!new_task) {
+        print_string("Error: OOM in create_task.\n");
         return;
     }
+    memset(new_task, 0, sizeof(process_t));
 
-    int pid = process_count;
-    process_count++;
+    int pid = next_pid++;
 
-    processes[pid].id = pid;
-    processes[pid].parent_id = current_pid; // Set Parent to Current Process (e.g., Kernel PID 0)
-    processes[pid].next = 0;
-    // processes[pid].pd = processes[0].pd;
+    
+    new_task->id = pid;
+    new_task->parent_id = current_process->id;
+    new_task->next = 0;
+    new_task->prev = 0;
 
-    // Clone Page Directory (Deep Copy User Space, Share Kernel Space)
-    // This gives the new task its own address space, allowing it to become a User Process later.
+    // Clone Page Directory
     extern uint32_t vmm_clone_directory(page_directory * src);
-    processes[pid].pd = (page_directory *)vmm_clone_directory((page_directory *)P2V((uint32_t)processes[0].pd));
-    // 1. Initialize Stack Pointer to the END of the array (Stack grows triggers downwards)
-    uint32_t *stack_ptr = &processes[pid].stack[1023];
+    // P2V needed for access? vmm_clone reads src->m_entries.
+    // current_process->pd IS physical. We need to pass Virtual.
+    new_task->pd = (page_directory *)vmm_clone_directory((page_directory *)P2V((uint32_t)current_process->pd));
+    
+    // 1. Initialize Stack Pointer
+    uint32_t *stack_ptr = &new_task->stack[1023];
 
     // 2. Forge the Stack Content
-    // Matching 'switch_task' which does: push ebx, esi, edi, ebp
-    // So we push in order: RetAddr, EBX, ESI, EDI, EBP (Top)
-
     extern void task_wrapper();
 
-    // A. Return Address (For 'ret') -> Jump to wrapper first!
+    // A. Return Address
     *stack_ptr-- = (uint32_t)task_wrapper;
 
-    // B. Callee-Saved Registers (For 'pop ...')
-    *stack_ptr-- = (uint32_t)function; // EBX = Function Pointer (used by wrapper)
-    *stack_ptr-- = 0;                  // ESI
-    *stack_ptr-- = 0;                  // EDI
-    *stack_ptr-- = 0;                  // EBP (Top of Stack)
+    // B. Callee-Saved Registers
+    *stack_ptr-- = (uint32_t)function; 
+    *stack_ptr-- = 0;                  
+    *stack_ptr-- = 0;                  
+    *stack_ptr-- = 0;                  
 
-    // Note: We don't push EFLAGS here because 'switch_task' uses 'ret', not 'iret'.
-    // 'task_wrapper' will do 'sti' to enable interrupts.
-
-    // TO make it point to last pushed data
-    processes[pid].esp = stack_ptr + 1;
+    new_task->esp = stack_ptr + 1;
 
     print_string("Created Task PID ");
     print_dec(pid);
     print_string("\n");
 
-    processes[pid].state = PROCESS_READY;
+    new_task->state = PROCESS_READY;
+
+    // Append to linked list
+    process_t *tail = process_list;
+    while (tail->next) tail = tail->next;
+    
+    tail->next = new_task;
+    new_task->prev = tail;
 }
 
 // Helper stub defined in context_switch.asm
@@ -150,48 +149,33 @@ extern void fork_ret();
 // Args: regs - Pointer to the interrupt stack frame (Trap Frame) passed by syscall_handler
 int sys_fork(registers_t *regs)
 {
-    // 1. Check Process Limit
-    if (process_count >= MAX_PROCESSES)
-    {
-        return -1;
-    }
+    // 1. Allocate Child PCB
+    process_t *child = (process_t*)kmalloc(sizeof(process_t));
+    if (!child) return -1;
+    memset(child, 0, sizeof(process_t));
 
-    // 2. Identify Parent and Child PIDs
-    uint32_t parent_pid = current_pid;
-    uint32_t child_pid = process_count;
-    process_count++;
-    // while(1);
-    //  3. Initialize Child Process Control Block (PCB)
-    processes[child_pid].id = child_pid;
-    processes[child_pid].parent_id = parent_pid;
-    // processes[child_pid].state = PROCESS_READY;
-    //  while(1);
-    processes[child_pid].next = 0;
-    // 4. Clone Address Space (Page Directory)
-    // Deep Copy User Space, Share Kernel Space
+    // 2. Identify IDs
+    uint32_t parent_pid = current_process->id;
+    uint32_t child_pid = next_pid++;
+
+    // 3. Initialize Child
+    child->id = child_pid;
+    child->parent_id = parent_pid;
+    child->next = 0;
+    child->prev = 0;
+    
+    // 4. Clone Address Space
     extern uint32_t vmm_clone_directory(page_directory * src);
-    processes[child_pid].pd = (page_directory *)vmm_clone_directory((page_directory *)P2V((uint32_t)processes[parent_pid].pd));
-    // print_hex((uint32_t)processes[child_pid].pd->m_entries[2]);
-    //  5. Setup Child's Kernel Stack (The "Trap Frame" Method)
-    //  Instead of copying the running stack of sys_fork (which is complex),
-    //  we manually construct the stack so the child wakes up directly at 'fork_ret'.
-    // while(1);
-    //  A. Point to the top (high address) of the child's allocated kernel stack.
-    //  Assuming stack size is 4KB (1024 uint32_t).
-    uint32_t *child_stack_ptr = processes[child_pid].stack + 1024;
-    // while(1);
-    // -------------------------------------------------------------
-    // Step 5-1: Push the Trap Frame (User Registers)
-    // This restores the User Mode state (EIP, ESP, etc.) when child runs.
-    // -------------------------------------------------------------
-
+    child->pd = (page_directory *)vmm_clone_directory((page_directory *)P2V((uint32_t)current_process->pd));
+    
+    // 5. Setup Child's Kernel Stack
+    uint32_t *child_stack_ptr = child->stack + 1024;
+    
     // Move pointer down to make space for registers_t
     child_stack_ptr -= (sizeof(registers_t) / 4);
     registers_t *child_regs = (registers_t *)child_stack_ptr;
-    // while(1);
-    // Copy the Parent's register state (captured in syscall_handler) to Child's stack
-    // Struct copy works in C (effectively memcpy)
-    //*child_regs = *regs;
+    
+    // Copy the Parent's register state
     uint32_t *src_ptr = (uint32_t *)regs;
     uint32_t *dst_ptr = (uint32_t *)child_regs;
 
@@ -199,108 +183,73 @@ int sys_fork(registers_t *regs)
     {
         dst_ptr[i] = src_ptr[i];
     }
-    // while(1);
-    //  ★ CRITICAL: Force Child's return value (EAX) to 0
+    
+    // ★ Force Child's return value (EAX) to 0
     child_regs->eax = 0;
 
-    // -------------------------------------------------------------
     // Step 5-2: Forge Thread Context for switch_task
-    // We simulate the stack frame that 'switch_task' expects to pop.
-    // Usually: [EBX, ESI, EDI, EBP, RET_ADDR] (Order depends on your asm)
-    // -------------------------------------------------------------
-
-    // We need space for 4 saved registers + 1 return address = 5 slots
     child_stack_ptr -= 5;
 
-    // Let's populate them directly as an array:
-    // child_stack_ptr[0] -> EBX
-    // child_stack_ptr[1] -> ESI
-    // child_stack_ptr[2] -> EDI
-    // child_stack_ptr[3] -> EBP
-    // child_stack_ptr[4] -> Return Address (fork_ret)
-    // while(1);
-    child_stack_ptr[0] = 0; // EBX (Dummy)
-    child_stack_ptr[1] = 0; // ESI (Dummy)
-    child_stack_ptr[2] = 0; // EDI (Dummy)
-    child_stack_ptr[3] = 0; // EBP (Dummy)
-    // while(1);
+    child_stack_ptr[0] = 0; // EBX
+    child_stack_ptr[1] = 0; // ESI
+    child_stack_ptr[2] = 0; // EDI
+    child_stack_ptr[3] = 0; // EBP
+    
     // ★ When switch_task executes 'ret', it will jump HERE:
     child_stack_ptr[4] = (uint32_t)fork_ret;
-    // while(1);
-    //  6. Save Child's ESP
-    //  Store the final stack pointer into the PCB.
-    //  The scheduler will load this into CPU ESP when switching to child.
-    processes[child_pid].esp = (uint32_t *)child_stack_ptr;
-    // 7. Return Child PID to Parent
-    // This return only executes for the PARENT process.
-    // while(1);
-    processes[child_pid].state = PROCESS_READY;
+    
+    // 6. Save Child's ESP
+    child->esp = (uint32_t *)child_stack_ptr;
+    
+    child->state = PROCESS_READY;
+
+    // 7. Append to List
+    process_t *tail = process_list;
+    while (tail->next) tail = tail->next;
+    
+    tail->next = child;
+    child->prev = tail;
+
     return child_pid;
 }
 
-// Simple Round-Robin Scheduler
+// Linked-List Round-Robin Scheduler
 void schedule()
 {
-    // If we only have the kernel (1 process) running, no need to switch
-    if (process_count <= 1)
-        return;
+    if (!process_list || !process_list->next) return;
 
-    // 1. Get current process info
-    int prev_pid = current_pid;
+    // 1. Select next process
+    process_t *next = current_process->next;
+    if (!next) next = process_list; // Wrap around to head
 
-    // 2. Select next process (Round-Robin with State Check)
-    int next_pid = current_pid;
-    int items_checked = 0;
-    // while(1);
-    do
-    {
-        next_pid++;
-        if (next_pid >= process_count)
-        {
-            next_pid = 0;
+    process_t *start_node = next;
+
+    // Find first READY or RUNNING process
+    while (next->state != PROCESS_READY && next->state != PROCESS_RUNNING) {
+        next = next->next;
+        if (!next) next = process_list;
+
+        if (next == start_node) {
+            return;
         }
-        items_checked++;
+    }
 
-        // Safety Break: If we wrapped around and found nothing (shouldn't happen if Kernel is running)
-        if (items_checked > process_count)
-        {
-            next_pid = 0; // Fallback to Kernel
-            break;
-        }
-    } while (processes[next_pid].state != PROCESS_READY && processes[next_pid].state != PROCESS_RUNNING);
+    // 2. Context Switch needed?
+    if (next != current_process) {
+        process_t *prev = current_process;
+        current_process = next;
 
-    current_pid = next_pid;
-
-    // 3. Perform Context Switch ONLY if the task changed
-    if (current_pid != prev_pid)
-    {
-        // if(current_pid == 2) {
-        //     print_hex((uint32_t)processes[prev_pid].pd->m_entries[0]);
-        //     print_string("\n");
-        //     print_hex((uint32_t)processes[prev_pid].pd->m_entries[2]);
-        //     print_string("\n");
-        //     print_hex((uint32_t)processes[current_pid].pd->m_entries[0]);
-        //     print_string("\n");
-        //     print_hex((uint32_t)processes[current_pid].pd->m_entries[2]);
-        //     print_string("\n");
-        // }
-        // Update TSS ESP0 to point to the TOP of the NEW task's kernel stack
-        // This ensures that if an interrupt occurs in User Mode, ESP jumps here.
+        // Update TSS ESP0 for User Mode interrupts
         extern void tss_set_stack(uint32_t kernel_esp);
-        uint32_t new_kernel_stack = (uint32_t)(processes[current_pid].stack + 1024);
+        uint32_t new_kernel_stack = (uint32_t)(current_process->stack + 1024);
         tss_set_stack(new_kernel_stack);
+
         // Switch Page Directory (CR3) if different
-        // This is crucial for process isolation (Step 4.3 Fork)
-        if (processes[current_pid].pd != processes[prev_pid].pd)
-        {
-            __asm__ volatile("mov %0, %%cr3" ::"r"(processes[current_pid].pd));
+        if (current_process->pd != prev->pd) {
+            __asm__ volatile("mov %0, %%cr3" ::"r"(current_process->pd));
         }
 
-        // Switch from Prev -> Next
-        // We pass:
-        //  1. The new task's ESP (value)
-        //  2. A pointer to the old task's ESP storage (so we can save the old ESP)
-        switch_task(processes[current_pid].esp, &processes[prev_pid].esp);
+        switch_task(current_process->esp, &prev->esp);
     }
 }
 
@@ -371,68 +320,54 @@ int sys_execve(char *filename, char **argv, char **envp, registers_t *regs)
 
 void sys_exit(int code)
 {
-    // Critical Section
     __asm__ volatile("cli");
 
-    // 1. Record Exit Code
-    processes[current_pid].exit_code = code;
-
-    // 2. Set State to TERMINATED (Zombie)
-    // The process will remain in memory
-    // 3. Mark as Zombie (Parent needs to wait())
-    processes[current_pid].state = PROCESS_TERMINATED;
+    current_process->exit_code = code;
+    current_process->state = PROCESS_TERMINATED;
 
     print_string("\n[Kernel] Process ");
-    print_dec(current_pid);
+    print_dec(current_process->id);
     print_string(" exited with code ");
     print_dec(code);
     print_string(".\n");
 
-    // End Critical Section (Though we won't return, schedule() re-enables via task switch)
     __asm__ volatile("sti");
-
-    // 4. Yield CPU directly (Never returns)
     schedule();
 
-    // Should unreachable
-    while (1)
-        ;
+    while (1);
 }
 
 int sys_wait(int *status)
 {
-    // Check for any zombie children
-    // If found: reap (freed conceptually) and return PID.
-    // If running children exist: block (yield).
-    // If no children: return -1.
-
     while (1)
     {
         int has_children = 0;
-
-        for (int i = 0; i < process_count; i++)
-        {
-            if (processes[i].parent_id == current_pid)
-            {
+        process_t *node = process_list;
+        
+        while (node) {
+            if (node->parent_id == current_process->id) {
                 has_children = 1;
+                
+                if (node->state == PROCESS_TERMINATED) {
+                    // 1. Found Zombie Child
+                    if (status) *status = node->exit_code;
+                    int child_pid = node->id;
+                    
+                    // 2. Unlink from List
+                    if (node->prev) node->prev->next = node->next;
+                    if (node->next) node->next->prev = node->prev;
 
-                if (processes[i].state == PROCESS_TERMINATED)
-                {
-                    // Child is a Zombie! Reap it.
-                    if (status)
-                    {
-                        *status = processes[i].exit_code;
-                    }
-
-                    // Mark as "Free" or "Reaped".
-                    // reusing slots is complex without a free list.
-                    // For now, we just leave it as TERMINATED but return its PID.
-                    // To prevent re-waiting same process, we could set parent_id to -1 or similar.
-                    processes[i].parent_id = -1; // Detach so we don't wait again
-
-                    return processes[i].id;
+                    // 3. Free Resources
+                    // A. Free Page Directory (and User Pages)
+                    vmm_free_directory((page_directory*)P2V((uint32_t)node->pd));
+                    
+                    // B. Free PCB (and Kernel Stack inside it)
+                    kfree(node);
+                    
+                    return child_pid;
                 }
             }
+            node = node->next;
         }
 
         if (!has_children)
@@ -441,10 +376,7 @@ int sys_wait(int *status)
         }
 
         // Children exist but are running. Yield.
-        // In a better OS, we would set state=PROCESS_BLOCKED and wake up on exit.
-        // But for simplicity: busy wait with yield.
-        __asm__ volatile("sti; hlt"); // Wait for interrupt (timer) to reschedule
-        // schedule() is called by timer ISR
+        __asm__ volatile("sti; hlt"); 
     }
 }
 

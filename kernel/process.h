@@ -19,7 +19,8 @@ typedef struct process {
     int parent_id;       // Parent Process ID (-1 if none)
     ProcessState state;  // Process State
     int exit_code;       // Exit Status Code
-    struct process *next; // Linked List Pointer
+    struct process *next; // Next process in list
+    struct process *prev; // Previous process in list
 } process_t;
 
 #include "isr.h"

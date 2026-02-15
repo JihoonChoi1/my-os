@@ -75,9 +75,11 @@ void vmm_enable_paging();
 // Global Page Directory (Needed for loading CR3)
 extern page_directory* kernel_directory;
 
-// Clone a directory (Deep Copy for User Space)
-// Returns the Physical Address of the new Directory (for CR3)
+// Clone a page directory (for fork)
 uint32_t vmm_clone_directory(page_directory* src);
+
+// Free a page directory (for exit/wait)
+void vmm_free_directory(page_directory *dir);
 
 // Map a specific page
 int vmm_map_page(uint32_t virt, uint32_t phys, uint32_t flags);

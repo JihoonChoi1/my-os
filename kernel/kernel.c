@@ -228,6 +228,8 @@ void handle_scrolling()
     }
 }
 
+void print_backspace(); // Forward Declaration
+
 void print_buffer(char *string, int len)
 {
     for (int i = 0; i < len; i++)
@@ -240,6 +242,11 @@ void print_buffer(char *string, int len)
 
             // Move the cursor to the beginning (column 0) of the next row
             cursor_offset = get_screen_offset(0, current_row + 1);
+        }
+        // Handle Backspace (\b)
+        else if (string[i] == '\b')
+        {
+            print_backspace();
         }
         else
         {
