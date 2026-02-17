@@ -25,12 +25,12 @@ LDFLAGS = --oformat binary -m elf_i386 -T kernel.ld
 # Main Target
 # --------------------------------------------------------
 run: disk.img
-	qemu-system-x86_64 -no-reboot -drive format=raw,file=disk.img
+	qemu-system-x86_64 -no-reboot -d int,cpu_reset -no-shutdown -drive format=raw,file=disk.img
 
 
  
 # User Programs
-PROGRAMS = programs/hello.elf programs/shell.elf programs/fork_cow.elf
+PROGRAMS = programs/hello.elf programs/shell.elf programs/fork_cow.elf programs/thread_test.elf
 
 # --------------------------------------------------------
 # OS Image Creation

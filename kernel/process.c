@@ -53,7 +53,8 @@ void enter_user_mode(uint32_t entry_point)
 
 // Process List (Doubly Linked)
 static process_t *process_list = 0;
-static process_t *current_process = 0;
+/* static process_t *current_process = 0; // Removed static for sync.c access */
+process_t *current_process = 0;
 static uint32_t next_pid = 0;
 
 extern void print_string(char *str);
@@ -213,9 +214,85 @@ int sys_fork(registers_t *regs)
     return child_pid;
 }
 
+// sys_clone: Create a new kernel thread sharing memory space
+// Input: regs->ebx = New Stack Pointer (allocated by user)
+int sys_clone(registers_t *regs)
+{
+    // 1. Allocate process structure
+    process_t *child = (process_t*)kmalloc(sizeof(process_t));
+    if (!child) return -1;
+
+    // 2. Setup IDs
+    child->id = next_pid++;
+    child->parent_id = current_process->id;
+    child->state = PROCESS_READY;
+    child->exit_code = 0;
+    
+    // 3. Shared Memory (CRITICAL DIFFERENCE FROM FORK)
+    // Threads share the same Page Directory!
+    child->pd = current_process->pd; 
+    
+    // 4. Setup Kernel Stack (Same logic as fork)
+    uint32_t *stack_ptr = (uint32_t*)(child->stack + 1024);
+    
+    // Push Trap Frame (registers_t)
+    stack_ptr -= sizeof(registers_t) / 4;
+    registers_t *child_regs = (registers_t*)stack_ptr;
+    *child_regs = *regs; // Copy registers from parent
+    
+    // Set Return Value for Child (0)
+    child_regs->eax = 0;
+    
+    // Set New Stack Pointer (passed in EBX)
+    // If EBX is 0, child shares stack with parent (dangerous but possible)
+    if (regs->ebx != 0) {
+        child_regs->useresp = regs->ebx; // Set User ESP in Trap Frame
+    }
+    
+    // 6. Manual Stack Setup for "fork_ret" (Kernel Thread Return)
+    // We emulate what `switch_task` expects on the stack when it switches to this thread.
+    // Order: [EBX, ESI, EDI, EBP, RET_ADDR] (Popped by switch_task)
+    
+    // Allocate 5 slots (20 bytes) on the stack
+    stack_ptr -= 5;
+    
+    stack_ptr[0] = 0; // EBX
+    stack_ptr[1] = 0; // ESI
+    stack_ptr[2] = 0; // EDI
+    stack_ptr[3] = 0; // EBP
+    stack_ptr[4] = (uint32_t)fork_ret; // Return address
+    
+    child->esp = stack_ptr; // Save kernel stack pointer
+    
+    // 5. Add to process list
+    process_t *tail = process_list;
+    while (tail->next) tail = tail->next;
+    tail->next = child;
+    child->prev = tail;
+    child->next = 0;
+    
+    return child->id; // Return Child PID (TID) to parent
+}
+
+// Block the current process and yield CPU
+void block_process() {
+    current_process->state = PROCESS_BLOCKED;
+    schedule();
+}
+
+// Unblock a specific process (mark as READY)
+void unblock_process(process_t *p) {
+    if (p && p->state == PROCESS_BLOCKED) {
+        p->state = PROCESS_READY;
+    }
+}
+
 // Linked-List Round-Robin Scheduler
 void schedule()
 {
+    // Atomic Schedule: Ensure no interrupts interrupt the scheduler itself
+    __asm__ volatile("cli");
+
     if (!process_list || !process_list->next) return;
 
     // 1. Select next process
@@ -331,10 +408,26 @@ void sys_exit(int code)
     print_dec(code);
     print_string(".\n");
 
-    __asm__ volatile("sti");
+    // Wake up parent if it is blocked waiting for us
+    if (current_process->parent_id != -1) {
+        process_t *node = process_list;
+        while (node) {
+            if (node->id == current_process->parent_id) {
+                if (node->state == PROCESS_BLOCKED) {
+                    node->state = PROCESS_READY;
+                }
+                break;
+            }
+            node = node->next;
+        }
+    }
+
     schedule();
 
-    while (1);
+    __asm__ volatile("sti");
+    while (1) {
+        __asm__ volatile("hlt");
+    }
 }
 
 int sys_wait(int *status)
@@ -375,8 +468,10 @@ int sys_wait(int *status)
             return -1; // No children to wait for
         }
 
-        // Children exist but are running. Yield.
-        __asm__ volatile("sti; hlt"); 
+        // Children exist but are running.
+        // Instead of busy waiting (HLT), mark itself as BLOCKED and yield.
+        // It will be woken up when a child process calls sys_exit().
+        block_process(); 
     }
 }
 

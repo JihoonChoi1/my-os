@@ -287,13 +287,55 @@ int main(int argc, char *argv[])
         fclose(cow_fp);
     }
     
+    // Write thread_test.elf Program Inode
+    printf("Writing thread_test.elf Inode...\n");
+    FILE *thread_fp = fopen("programs/thread_test.elf", "rb");
+    if (!thread_fp) {
+        printf("WARNING: programs/thread_test.elf not found. Skipping.\n");
+    } else {
+        fseek(thread_fp, 0, SEEK_END);
+        uint32_t thread_size = ftell(thread_fp);
+        fseek(thread_fp, 0, SEEK_SET);
+        
+        printf("thread_test.elf size: %d bytes\n", thread_size);
+
+        sfs_inode thread_inode;
+        memset(&thread_inode, 0, sizeof(thread_inode));
+        thread_inode.used = 1;
+        strcpy(thread_inode.filename, "thread_test.elf");
+        thread_inode.size = thread_size;
+        
+        uint32_t needed_blocks = (thread_size + PROJ_BLOCK_SIZE - 1) / PROJ_BLOCK_SIZE;
+        
+        for (uint32_t i = 0; i < needed_blocks; i++) {
+            thread_inode.blocks[i] = next_free_block + i;
+        }
+
+        // Write Inode to Inode Table (Sector 19)
+        // Index 4 (Fifth inode)
+        fseek(disk_fp, sb.inode_table_block * PROJ_BLOCK_SIZE + 4 * sizeof(sfs_inode), SEEK_SET);
+        fwrite(&thread_inode, 1, sizeof(thread_inode), disk_fp);
+
+        // Write Data
+        printf("Writing thread_test.elf Data...\n");
+        uint8_t *thread_data = (uint8_t *)malloc(thread_size);
+        fread(thread_data, 1, thread_size, thread_fp);
+
+        fseek(disk_fp, next_free_block * PROJ_BLOCK_SIZE, SEEK_SET);
+        fwrite(thread_data, 1, thread_size, disk_fp);
+
+        free(thread_data);
+        next_free_block += needed_blocks;
+        fclose(thread_fp);
+    }
+    
     printf("Updating Inode Bitmap...\n");
 
     // Move to sector 18 where the bitmap is
     fseek(disk_fp, sb.inode_bitmap_block * PROJ_BLOCK_SIZE, SEEK_SET);
 
     uint8_t bitmap[512] = {0}; 
-    bitmap[0] = 0x0F; // 0000 1111 -> 4 inodes used (kernel, hello, shell, fork_cow)
+    bitmap[0] = 0x1F; // 0001 1111 -> 5 inodes used (kernel, hello, shell, fork_cow, thread_test)
 
     fwrite(bitmap, 1, 512, disk_fp);
 

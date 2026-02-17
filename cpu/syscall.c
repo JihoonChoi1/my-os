@@ -57,6 +57,7 @@ void syscall_exec(registers_t *regs) { ... }
 extern void sys_exit(int code);
 extern int sys_wait(int *status);
 extern int sys_fork(registers_t *regs);
+extern int sys_clone(registers_t *regs);
 
 void syscall_handler(registers_t *regs) {
     // Dispatch based on EAX
@@ -86,6 +87,11 @@ void syscall_handler(registers_t *regs) {
             // EAX = sys_wait(status)
             // status pointer in EBX
             regs->eax = sys_wait((int*)regs->ebx);
+            break;
+        case 10: // CLONE (Thread Creation)
+            // EAX = sys_clone(regs)
+            // EBX = Stack Pointer (New Stack)
+            regs->eax = sys_clone(regs);
             break;
         default:
             print_string("Unknown Syscall: ");

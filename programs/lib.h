@@ -13,5 +13,6 @@ void exit(int code);
 int exec(char *filename);
 int fork();
 int wait(int *status);
+int thread_create(void (*func)(void*), void *arg, void *stack);
 
 #endif

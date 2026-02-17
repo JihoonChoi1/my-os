@@ -118,3 +118,30 @@ int fork() {
 int wait(int *status) {
     return syscall(5, (int)status, 0, 0);
 }
+
+// 4. Thread Functions
+// thread_create: Create a new thread
+// func: Function to run
+// arg: Argument to pass to func
+// stack: Stack pointer for the new thread
+int thread_create(void (*func)(void*), void *arg, void *stack) {
+    // 1. Call clone system call
+    // Syscall 10: CLONE
+    // Arg 1 (EBX): Stack Pointer
+    int ret = syscall(10, (int)stack, 0, 0);
+    
+    // 2. Check return value
+    if (ret < 0) return -1; // Error
+    
+    if (ret == 0) {
+        // Child Process (New Thread)
+        // Execute the function
+        func(arg);
+        
+        // After function returns, exit the thread
+        exit(0);
+    }
+    
+    // Parent returns child PID
+    return ret;
+}
