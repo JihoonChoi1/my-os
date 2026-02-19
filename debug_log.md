@@ -418,3 +418,164 @@ To understand why the CPU was accessing memory I didn't tell it to, I analyzed t
     ```
 - **Outcome:** The buffer is now large enough to hold the full sector data (including padding). The ATA driver writes safely within bounds, preserving the heap integrity. Multiple `exec` calls now run firmly without corruption.
 
+
+---
+
+# Debugging Log: Triple Fault in `thread_test.elf` (SSE Instruction)
+
+**Date:** 2026-02-17
+**Module:** User Mode Execution (`programs/thread_test.c`), Compiler Flags
+**Severity:** Critical (System Reboot / Triple Fault)
+
+## 1. Issue Description
+- **Symptom:** Executing `exec thread_test.elf` caused an immediate Triple Fault, leading to a system reboot (QEMU reset).
+- **Observation:**
+    - The program loaded successfully (ELF loader printed entry point).
+    - But as soon as it started running (possibly during thread creation or early execution), the CPU reset.
+    - No specific error message (Page Fault, GPF) was visible before the reset with standard logging.
+
+## 2. Debugging Process: Capturing the Crash State
+To understand the cause of the Triple Fault, I utilized QEMU's advanced debugging features to capture the CPU state at the moment of the crash.
+
+1.  **QEMU Debug Flags:**
+    - Added `-d int,cpu_reset -no-shutdown` to the QEMU command in `Makefile`.
+    - `-d int`: Logs interrupts and exceptions.
+    - `-cpu_reset`: Logs CPU state on reset.
+    - `-no-shutdown`: Keeps the QEMU window open after the crash instead of exiting.
+    
+    ```makefile
+    qemu-system-x86_64 -no-reboot -d int,cpu_reset -no-shutdown -drive format=raw,file=disk.img
+    ```
+
+2.  **Crash Analysis (Register Dump):**
+    - The QEMU log revealed that the CPU was halted due to a **Triple Fault**.
+    - **EIP (Instruction Pointer):** `0xC010137D`
+    - This address points to the exact instruction that caused the exception.
+
+    ![Register Dump](debug_logs/2026-02-17/register_dump.png)
+    *(The register dump showing EIP=0xC010137D)*
+
+## 3. Root Cause Analysis: Disassembling the Kernel
+The address `0xC010137D` is a virtual address in the Kernel's code segment. To find out what instruction resides there, I used `objdump`.
+
+1.  **Disassembly Command:**
+    - `x86_64-elf-objdump -b binary -m i386 -D kernel.bin --adjust-vma=0xC0100000 | grep -C 5 "c010137d"`
+    - **`--adjust-vma=0xC0100000` (Crucial):** Since `kernel.bin` is a raw binary (not ELF), it has no internal address information. By default, `objdump` assumes it starts at `0x0`. However, our kernel is linked to run at `0xC0100000` (Higher Half). This option tells `objdump` to offset all addresses by `0xC0100000`, matching the crash log addresses.
+
+2.  **Disassembly Result:**
+    ```asm
+    c010137d:       f3 0f 6f 02             movdqu (%edx),%xmm0
+    ```
+    ![Crash Address Objdump](debug_logs/2026-02-17/crash_address_objdump.png)
+    *(Objdump output revealing the culprit instruction)*
+
+3.  **The "Smoking Gun":**
+    - **Instruction:** `movdqu` (Move Unaligned Double Quadword).
+    - **Type:** **SSE (Streaming SIMD Extensions)** instruction.
+    - **Register:** `%xmm0` (SSE Register).
+    - **Cause:** The compiler (GCC), trying to optimize a structure copy or memory operation (likely `*child_regs = *regs` in `sys_clone`), generated an SSE instruction.
+    - **Why Crash?**
+        - In the protected mode OS, I have **not enabled SSE** in the CR4 register.
+        - Executing any SSE instruction without enabling it triggers an **Invalid Opcode (#UD)** exception.
+        - If the exception handler itself is not set up to handle this or triggers another fault (e.g., stack alignment), it escalates to a Double/Triple Fault.
+
+## 4. Resolution: Disabling SSE Generation
+Since the kernel does not yet support SSE/FPU context switching, the safest fix is to forbid the compiler from generating these instructions.
+
+- **Fix:** Added GCC flags to disable SSE, SSE2, and MMX.
+- **Affected Files:** `Makefile` (both Kernel and User Program compilation rules).
+- **Implementation:**
+    ```makefile
+    # Kernel CFLAGS
+    CFLAGS = -ffreestanding -m32 -g ... -mno-sse -mno-sse2 -mno-mmx
+
+    # User Program Rule
+    programs/%.elf: ...
+        $(CC) ... -mno-sse -mno-sse2 -mno-mmx
+    ```
+
+- **Outcome:** After recompiling (`make clean && make run`), the Triple Fault disappeared, and `thread_test.elf` proceeded past the crash point (though it later revealed a separate stack frame issue).
+
+
+---
+
+# Debugging Log: Child Thread Page Fault (Stack Frame Issue)
+
+**Date:** 2026-02-19
+**Module:** Thread Management (`programs/lib.c`, `kernel/process.c`), Assembly
+**Severity:** Critical (Child Thread Crash)
+
+## 1. Issue Description
+- **Symptom:** Executing `exec thread_test.elf` resulted in a Page Fault at Address `0x0`.
+- **Observation:**
+    - To trace the execution flow, I added `print_dec()` calls inside `thread_create` to check the return value of the syscall.
+    - Expected behavior: The child thread (returned 0) should print something or execute the function `func`.
+    - Actual behavior: No output from the child thread. It crashed silently before running user code.
+    - This indicated that the child thread failed to return correctly from the `clone` system call to the `thread_create` function.
+
+## 2. Debugging Process: Register Dump & Stack Analysis
+To understand why the return failed, I inspected the CPU state at the crash.
+
+1.  **Register Dump Analysis:**
+    - **EIP:** `0x00000000` (Jumped to NULL).
+    - **ESP:** `0x00F00F80` (Parent's Main Stack!).
+    
+    ![Register Dump](debug_logs/2026-02-19/register_dump.png)
+    *(ESP pointing to 0xF00F80, which is the Main Thread's stack)*
+
+2.  **Contradiction:**
+    - The `thread_test.elf` is loaded at `0x400000`.
+    - The child thread's stack was statically allocated in the BSS section (`stack1`, `stack2`, etc.), so its ESP should be around `0x40xxxx`.
+    - Debug prints confirmed that the stack pointer passed to `clone` was indeed `0x40xxxx`.
+    - **Question:** Why did ESP revert to the Parent's Stack (`0xF00F80`) at the moment of the crash?
+
+3.  **Hypothesis:**
+    - **Is the Main Thread causing the crash after it finishes?**
+    - To verify this, I inserted dummy loops (`for(i=0; i<big_number; i++)`) in the main thread to delay its completion.
+    - **Result:** The Page Fault occurred *while* the dummy loops were still running.
+    - **Conclusion:** This confirmed that the crash happens when the **Scheduler preempts the Main Thread** and attempts to switch context to the Child Thread. It is not a logic error in the Main Thread's cleanup code, but a failure in the context switching or stack restoration process.
+
+## 3. Root Cause Analysis: The `leave` Instruction
+Since C code hides stack manipulations, I disassembled the `syscall` function (implemented in `programs/lib.c`) within the `programs/thread_test.elf` binary to see the raw assembly.
+
+1.  **Disassembly Command:**
+    - `x86_64-elf-objdump -d programs/thread_test.elf | grep -A 20 "<syscall>:"`
+
+2.  **Disassembly Result:**
+    ```asm
+    4002ae:       89 45 f8                mov    %eax,-0x8(%ebp)
+    4002b1:       8b 45 f8                mov    -0x8(%ebp),%eax
+    4002b4:       8b 5d fc                mov    -0x4(%ebp),%ebx
+    ...
+    400446:       c9                      leave
+    400447:       c3                      ret
+    ```
+    ![Syscall Disassembly](debug_logs/2026-02-19/objdump.png)
+
+3.  **The "Smoking Gun": `LEAVE`**
+    - The `leave` instruction is equivalent to:
+      ```asm
+      mov esp, ebp
+      pop ebp
+      ```
+    - **Missing Piece:** In `sys_clone`, I correctly updated `ESP` to the new stack, but **I forgot to update `EBP`**.
+    - **Result:**
+        - `EBP` still held the **Parent's Stack Address** (`0xF0xxxx`).
+        - When the child thread executed `leave`, `mov esp, ebp` overwrote the correct new stack pointer (`0x40xxxx`) with the parent's stack pointer (`0xF0xxxx`).
+        - The subsequent `ret` popped a garbage return address from the parent's stack, causing a jump to `0x0`.
+
+## 4. Resolution
+To fix the ESP reversion issue, I modified `sys_clone` to explicitly update the child's `EBP` to the new stack pointer.
+
+- **Fix:** Set `child_regs->ebp` to the new stack pointer.
+- **Implementation (kernel/process.c):**
+    ```c
+    if (regs->ebx != 0) {
+        child_regs->useresp = regs->ebx;
+        child_regs->ebp = regs->ebx; // <--- Added this line
+    }
+    ```
+- **Outcome:**
+    - A Page Fault still occurred, BUT...
+    - **The Register Dump showed ESP = `0x40xxxx`!**
+    - This confirmed that the stack pointer now correctly points to the User Stack at the time of the crash.

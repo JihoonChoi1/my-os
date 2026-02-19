@@ -16,7 +16,7 @@ CC = x86_64-elf-gcc
 LD = x86_64-elf-ld
  
 # C Compile flags (Include all directories for header search)
-CFLAGS = -ffreestanding -m32 -g $(foreach dir, $(DIRS), -I$(dir))
+CFLAGS = -ffreestanding -m32 -g $(foreach dir, $(DIRS), -I$(dir)) -mno-sse -mno-sse2 -mno-mmx
  
 # Linker flags
 LDFLAGS = --oformat binary -m elf_i386 -T kernel.ld
@@ -40,7 +40,7 @@ disk.img: mkfs boot.bin loader.bin kernel.bin $(PROGRAMS)
 
 # Compile User Programs (ELF)
 programs/%.elf: programs/%.c programs/lib.c programs/linker.ld
-	$(CC) -ffreestanding -nostdlib -m32 -g -Wl,-m,elf_i386 -T programs/linker.ld $< programs/lib.c -o $@
+	$(CC) -ffreestanding -nostdlib -m32 -g -Wl,-m,elf_i386 -T programs/linker.ld $< programs/lib.c -o $@ -mno-sse -mno-sse2 -mno-mmx
  
 # Compile mkfs tool (Host) - Needs to find fs.h
 mkfs: tools/mkfs.c fs/fs.h

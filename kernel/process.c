@@ -247,6 +247,7 @@ int sys_clone(registers_t *regs)
     // If EBX is 0, child shares stack with parent (dangerous but possible)
     if (regs->ebx != 0) {
         child_regs->useresp = regs->ebx; // Set User ESP in Trap Frame
+        child_regs->ebp = regs->ebx; // Set User EBP to New Stack
     }
     
     // 6. Manual Stack Setup for "fork_ret" (Kernel Thread Return)
