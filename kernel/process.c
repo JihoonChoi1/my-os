@@ -191,10 +191,10 @@ int sys_fork(registers_t *regs)
     // Step 5-2: Forge Thread Context for switch_task
     child_stack_ptr -= 5;
 
-    child_stack_ptr[0] = 0; // EBX
-    child_stack_ptr[1] = 0; // ESI
-    child_stack_ptr[2] = 0; // EDI
-    child_stack_ptr[3] = 0; // EBP
+    child_stack_ptr[0] = 0; // EBP
+    child_stack_ptr[1] = 0; // EDI
+    child_stack_ptr[2] = 0; // ESI
+    child_stack_ptr[3] = 0; // EBX
     
     // ★ When switch_task executes 'ret', it will jump HERE:
     child_stack_ptr[4] = (uint32_t)fork_ret;
@@ -244,10 +244,14 @@ int sys_clone(registers_t *regs)
     child_regs->eax = 0;
     
     // Set New Stack Pointer (passed in EBX)
-    // If EBX is 0, child shares stack with parent (dangerous but possible)
     if (regs->ebx != 0) {
         child_regs->useresp = regs->ebx; // Set User ESP in Trap Frame
-        child_regs->ebp = regs->ebx; // Set User EBP to New Stack
+        child_regs->ebp = 0;             // Clear EBP for clean stack trace
+    }
+    
+    // Set Thread Entry Point (passed in ECX)
+    if (regs->ecx != 0) {
+        child_regs->eip = regs->ecx;
     }
     
     // 6. Manual Stack Setup for "fork_ret" (Kernel Thread Return)
@@ -257,10 +261,10 @@ int sys_clone(registers_t *regs)
     // Allocate 5 slots (20 bytes) on the stack
     stack_ptr -= 5;
     
-    stack_ptr[0] = 0; // EBX
-    stack_ptr[1] = 0; // ESI
-    stack_ptr[2] = 0; // EDI
-    stack_ptr[3] = 0; // EBP
+    stack_ptr[0] = 0; // EBP
+    stack_ptr[1] = 0; // EDI
+    stack_ptr[2] = 0; // ESI
+    stack_ptr[3] = 0; // EBX
     stack_ptr[4] = (uint32_t)fork_ret; // Return address
     
     child->esp = stack_ptr; // Save kernel stack pointer

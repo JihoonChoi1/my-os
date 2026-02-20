@@ -24,7 +24,7 @@ void worker(void *arg)
         int temp = counter;
 
         // Manual Delay loop
-        for (int j = 0; j < 100; j++)
+        for (int j = 0; j < 10000; j++)
         {
             __asm__ volatile("nop");
         }
@@ -35,7 +35,7 @@ void worker(void *arg)
     print("Thread ");
     print_dec(id);
     print(" finished.\n");
-    exit(0);
+    return;
 }
 
 // Stacks for threads (static allocation in BSS to avoid Main Stack Overflow)
@@ -45,7 +45,13 @@ char stack2[4096];
 char stack3[4096];
 
 int main()
-{
+{   
+    print_hex((int)stack1);
+    print("\n");
+    print_hex((int)stack2);
+    print("\n");
+    print_hex((int)stack3);
+    print("\n");
     print("Thread Test: 3 Threads incrementing counter 10000 times.\n");
 
     int id1 = 1, id2 = 2, id3 = 3;
@@ -90,6 +96,5 @@ int main()
     {
         print("Success? (Or just lucky)\n");
     }
-
-    return 0;
+    exit(0);
 }

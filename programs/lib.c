@@ -125,23 +125,18 @@ int wait(int *status) {
 // arg: Argument to pass to func
 // stack: Stack pointer for the new thread
 int thread_create(void (*func)(void*), void *arg, void *stack) {
+    int *user_stack = (int *)stack;
+    
+    // Setup initial stack frame for the thread (cdecl calling convention)
+    *(--user_stack) = 0;               // dummy argument (for exit)
+    *(--user_stack) = (int)arg;        // Argument for func
+    *(--user_stack) = (int)exit;       // Return address (thread will call exit() when func returns)
+    
     // 1. Call clone system call
     // Syscall 10: CLONE
-    // Arg 1 (EBX): Stack Pointer
-    int ret = syscall(10, (int)stack, 0, 0);
+    // Arg 1 (EBX): Initialized Stack Pointer
+    // Arg 2 (ECX): Thread Entry Point
+    int ret = syscall(10, (int)user_stack, (int)func, 0);
     
-    // 2. Check return value
-    if (ret < 0) return -1; // Error
-    
-    if (ret == 0) {
-        // Child Process (New Thread)
-        // Execute the function
-        func(arg);
-        
-        // After function returns, exit the thread
-        exit(0);
-    }
-    
-    // Parent returns child PID
     return ret;
 }

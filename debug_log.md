@@ -579,3 +579,77 @@ To fix the ESP reversion issue, I modified `sys_clone` to explicitly update the 
     - A Page Fault still occurred, BUT...
     - **The Register Dump showed ESP = `0x40xxxx`!**
     - This confirmed that the stack pointer now correctly points to the User Stack at the time of the crash.
+
+
+---
+
+# Debugging Log: Child Thread Page Fault (Empty User Stack & Context Restoration)
+
+**Date:** 2026-02-20
+**Module:** Thread Management (`programs/lib.c`, `kernel/process.c`)
+**Severity:** Critical (Child Thread Page Fault on Startup)
+
+## 1. Issue Description
+- **Symptom:** Executing `exec thread_test.elf` caused an immediate Page Fault (Error Code 0x4) before the child thread could perform any of its expected functionality.
+- **Observation:**
+    ![Page Fault in QEMU](debug_logs/2026-02-20/QEMU.png)
+    - The fault occurred entirely before the user thread's logic began executing, indicating an issue during the transition from the `sys_clone` system call back to User Mode.
+
+## 2. Debugging Process: Register Dump & Stack Trace Analysis
+1.  **Register Dump Verification:**
+    ![Register Dump showing EIP=0, CR2=0](debug_logs/2026-02-20/reg_dump.png)
+    - **CR2 & EIP:** Both were exactly `0x0`. This means the CPU attempted to fetch and execute an instruction from address `0x0`.
+    - **ESP (Stack Pointer):** Showed values like `0x401728` or `0x401788`. This matched the dynamically assigned User Stack addresses for the new child threads.
+    
+2.  **Stack Direction Analysis:**
+    - I printed out the base addresses of the user thread stacks (`stack1`, `stack2`, `stack3`). One of them was around `0x401780`.
+    - The x86 stack grows downwards (from higher memory to lower memory).
+    - If the thread actually ran and pushed data, the `ESP` should be *lower* than the initial boundary `0x401780`.
+    - However, the faulting `ESP` (`0x401788`) was actually *higher* than the initial stack pointer.
+    - **Conclusion:** A hardware page fault accessing a higher stack address indicates the CPU was likely trying to `pop` a return address or read arguments placed by a caller, rather than pushing local variables.
+
+3.  **Code Tracing & Root Cause Formulation:**
+    - I traced the code flow: The parent thread calls `int 0x80` (`syscall`).
+    - The kernel duplicates the trap frame in `sys_clone`.
+    - When the child thread is scheduled, the kernel does an `IRET`, dropping the child thread right back into the C `syscall()` wrapper function's epilogue (specifically, the `leave` and `ret` instructions).
+    - **The Fatal Flaw:** The child thread wakes up holding a completely empty, newly allocated stack. When the C function epilogue executes `ret`, it pops the top of this empty stack expecting a return address. Since the stack is zeroed out, it pops `0x0` into `EIP` and jumps to it, causing the immediate Page Fault.
+
+## 3. Resolution: Fake Stack Injection & EIP Modification
+Instead of having the child thread return to the `syscall` wrapper and branch off like in `fork()`, the solution is to manipulate the trap frame so the child wakes up directly inside its target function.
+
+1.  **Injecting User Stack Data (Parent Side - `programs/lib.c`)**
+    - Before calling `sys_clone`, the parent manually constructs a fake stack frame (cdecl calling convention) on the child's new stack.
+    ```c
+    int *user_stack = (int *)stack;
+    
+    // Setup initial stack frame for the thread
+    *(--user_stack) = 0;               // Dummy argument (for exit)
+    *(--user_stack) = (int)arg;        // Argument for func
+    *(--user_stack) = (int)exit;       // Return address (thread will call exit() when func returns)
+    
+    // Pass user_stack via EBX, func entry point via ECX
+    int ret = syscall(10, (int)user_stack, (int)func, 0);
+    ```
+    - *Note on the fake return mechanism:* When the worker function `func` finishes and hits its `ret` instruction, it will pop `(int)exit` as its return address. When `exit(code)` begins executing, it will pop the `(int)arg` slot thinking it is the return address, and read the `0` slot as its `code` argument. Since `exit()` invokes `sys_exit` and never actually returns, misinterpreting the `arg` slot as a return address is perfectly safe.
+
+2.  **Modifying the Trap Frame (Kernel Side - `kernel/process.c`)**
+    - The kernel intercepts the custom stack frame and entry point provided by the parent via registers `EBX` and `ECX`.
+    ```c
+    // Set New Stack Pointer (passed in EBX)
+    if (regs->ebx != 0) {
+        child_regs->useresp = regs->ebx; // Set User ESP in Trap Frame
+        child_regs->ebp = 0;             // Clear EBP for clean stack trace
+    }
+    
+    // Set Thread Entry Point (passed in ECX)
+    if (regs->ecx != 0) {
+        child_regs->eip = regs->ecx;     // Warp the child directly to 'func'
+    }
+    ```
+    - **Why `EBP = 0`?** Every C function prologue pushes the previous `EBP` to the stack to maintain a linking chain for stack traces. Since this child thread is starting fresh and wasn't literally "called" by any C function, leaving the parent's `EBP` here would intertwine their stack traces. Setting it to `0` (NULL) provides a clean anchor indicating the absolute bottom of the thread's call stack, preventing debuggers from unwinding out of bounds.
+
+## 4. Verification
+After applying these fixes, compiling, and running the system, `thread_test.elf` executed completely normally. The threads inherited the pre-filled arguments, successfully executed their workloads, and smoothly returned into the `exit()` system call termination block.
+
+![Execution Result 1](debug_logs/2026-02-20/result1.png)
+![Execution Result 2](debug_logs/2026-02-20/result2.png)
