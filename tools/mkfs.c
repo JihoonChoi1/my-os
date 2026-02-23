@@ -329,13 +329,54 @@ int main(int argc, char *argv[])
         fclose(thread_fp);
     }
     
+    // Write producer_consumer.elf Program Inode
+    printf("Writing producer_consumer.elf Inode...\n");
+    FILE *pc_fp = fopen("programs/producer_consumer.elf", "rb");
+    if (!pc_fp) {
+        printf("WARNING: programs/producer_consumer.elf not found. Skipping.\n");
+    } else {
+        fseek(pc_fp, 0, SEEK_END);
+        uint32_t pc_size = ftell(pc_fp);
+        fseek(pc_fp, 0, SEEK_SET);
+
+        printf("producer_consumer.elf size: %d bytes\n", pc_size);
+
+        sfs_inode pc_inode;
+        memset(&pc_inode, 0, sizeof(pc_inode));
+        pc_inode.used = 1;
+        strcpy(pc_inode.filename, "producer_consumer.elf");
+        pc_inode.size = pc_size;
+
+        uint32_t needed_blocks = (pc_size + PROJ_BLOCK_SIZE - 1) / PROJ_BLOCK_SIZE;
+
+        for (uint32_t i = 0; i < needed_blocks; i++) {
+            pc_inode.blocks[i] = next_free_block + i;
+        }
+
+        // Index 5 (Sixth inode)
+        fseek(disk_fp, sb.inode_table_block * PROJ_BLOCK_SIZE + 5 * sizeof(sfs_inode), SEEK_SET);
+        fwrite(&pc_inode, 1, sizeof(pc_inode), disk_fp);
+
+        // Write Data
+        printf("Writing producer_consumer.elf Data...\n");
+        uint8_t *pc_data = (uint8_t *)malloc(pc_size);
+        fread(pc_data, 1, pc_size, pc_fp);
+
+        fseek(disk_fp, next_free_block * PROJ_BLOCK_SIZE, SEEK_SET);
+        fwrite(pc_data, 1, pc_size, disk_fp);
+
+        free(pc_data);
+        next_free_block += needed_blocks;
+        fclose(pc_fp);
+    }
+
     printf("Updating Inode Bitmap...\n");
 
     // Move to sector 18 where the bitmap is
     fseek(disk_fp, sb.inode_bitmap_block * PROJ_BLOCK_SIZE, SEEK_SET);
 
-    uint8_t bitmap[512] = {0}; 
-    bitmap[0] = 0x1F; // 0001 1111 -> 5 inodes used (kernel, hello, shell, fork_cow, thread_test)
+    uint8_t bitmap[512] = {0};
+    bitmap[0] = 0x3F; // 0011 1111 -> 6 inodes used (kernel, hello, shell, fork_cow, thread_test, producer_consumer)
 
     fwrite(bitmap, 1, 512, disk_fp);
 
@@ -343,3 +384,4 @@ int main(int argc, char *argv[])
     printf("Successfully created disk.img!\n");
     return 0;
 }
+

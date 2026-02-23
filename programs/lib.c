@@ -195,3 +195,46 @@ void mutex_unlock(user_mutex_t *m) {
     }
     // If old was 1 (Locked, no waiters), just returning is enough — no wake needed.
 }
+
+// 7. Hybrid Semaphore (Futex-style)
+// The `count` field works as a token counter:
+//   count > 0 : Resources available — sem_wait can proceed without syscall
+//   count = 0 : No resources — waiter must sleep in kernel
+//   count < 0 : Waiters sleeping (count == -(num_waiters) approximately)
+// Design:
+//   sem_wait: Atomically decrement. If result >= 0, done (fast path).
+//             If result < 0, sleep via futex_wait (slow path).
+//   sem_post: Atomically increment. If result <= 0, wake one sleeper.
+
+void sem_init(user_sem_t *s, int value) {
+    s->count = value;
+}
+
+void sem_wait(user_sem_t *s) {
+    // Atomically decrement and check the result.
+    int result = __sync_sub_and_fetch(&s->count, 1);
+
+    if (result >= 0) {
+        // Fast Path: Token was available — acquired with no kernel involvement.
+        return;
+    }
+
+    // Slow Path: Count went negative — we registered ourselves as a waiter.
+    // Sleep until sem_post increments count and wakes us.
+    // sem_post wakes exactly one waiter per post.
+    syscall(11, (int)&s->count, result, 0);
+}
+
+
+void sem_post(user_sem_t *s) {
+    // Atomically increment and check the old value.
+    int result = __sync_fetch_and_add(&s->count, 1);
+
+    if (result < 0) {
+        // There was a waiter sleeping (count was negative).
+        // Wake one of them up.
+        // syscall 12 = sys_futex_wake(addr)
+        syscall(12, (int)&s->count, 0, 0);
+    }
+    // If result >= 0, no one was waiting — no syscall needed.
+}

@@ -25,6 +25,31 @@ extern uint32_t _kernel_end;
 #define REG_SCREEN_CTRL 0x3D4
 #define REG_SCREEN_DATA 0x3D5
 
+// COM1 Serial Port (UART) - for mirroring output to Mac terminal via -serial stdio
+#define COM1 0x3F8
+
+// Initialize the COM1 serial port (8N1 @ 115200 baud)
+void serial_init() {
+    port_byte_out(COM1 + 1, 0x00); // Disable interrupts
+    port_byte_out(COM1 + 3, 0x80); // Enable DLAB (baud rate divisor mode)
+    port_byte_out(COM1 + 0, 0x01); // Baud rate divisor low byte: 1 = 115200 baud
+    port_byte_out(COM1 + 1, 0x00); // Baud rate divisor high byte
+    port_byte_out(COM1 + 3, 0x03); // 8 data bits, no parity, 1 stop bit (8N1)
+    port_byte_out(COM1 + 2, 0xC7); // Enable FIFO, clear, 14-byte threshold
+}
+
+// Send one character to COM1 (blocking until transmit buffer is empty)
+void serial_putchar(char c) {
+    // Wait until the transmit holding register is empty (Line Status bit 5)
+    while ((port_byte_in(COM1 + 5) & 0x20) == 0);
+    port_byte_out(COM1, c);
+    // For newlines, also send \r so terminal cursor returns properly
+    if (c == '\n') {
+        while ((port_byte_in(COM1 + 5) & 0x20) == 0);
+        port_byte_out(COM1, '\r');
+    }
+}
+
 // Global variable to track the cursor position manually.
 // Reading from hardware (port_byte_in) can be unreliable or return garbage data
 // on some emulators/boot states, causing the text to print off-screen.
@@ -246,17 +271,20 @@ void print_buffer(char *string, int len)
 
             // Move the cursor to the beginning (column 0) of the next row
             cursor_offset = get_screen_offset(0, current_row + 1);
+            serial_putchar('\n'); // Mirror to serial
         }
         // Handle Backspace (\b)
         else if (string[i] == '\b')
         {
             print_backspace();
+            serial_putchar('\b'); // Mirror to serial
         }
         else
         {
             // Regular character: Print to video memory and advance cursor
             set_char_at_video_memory(string[i], cursor_offset);
             cursor_offset += 2;
+            serial_putchar(string[i]); // Mirror to serial
         }
 
         // Check for scrolling after every character print or newline
@@ -328,6 +356,7 @@ extern void task_b();
 
 void main()
 {   
+    serial_init(); // Initialize COM1 for mirrored output to host terminal
     clear_screen();
     
     // while(1);

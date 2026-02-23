@@ -26,4 +26,13 @@ void mutex_init(user_mutex_t *m);
 void mutex_lock(user_mutex_t *m);
 void mutex_unlock(user_mutex_t *m);
 
+// Hybrid Semaphore
+typedef struct {
+    volatile int count;
+} user_sem_t;
+
+void sem_init(user_sem_t *s, int value);
+void sem_wait(user_sem_t *s);
+void sem_post(user_sem_t *s);
+
 #endif
