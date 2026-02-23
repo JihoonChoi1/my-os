@@ -653,3 +653,52 @@ After applying these fixes, compiling, and running the system, `thread_test.elf`
 
 ![Execution Result 1](debug_logs/2026-02-20/result1.png)
 ![Execution Result 2](debug_logs/2026-02-20/result2.png)
+
+---
+
+# Debugging Log: Race Condition in Shared Page Directory Reference Counting
+
+**Date:** 2026-02-23
+**Module:** Process Manager (`kernel/process.c`), VMM (`mm/vmm.c`), PMM (`mm/pmm.c`)
+**Severity:** Critical (Potential Memory Corruption / Use-After-Free)
+
+## 1. Issue Description
+- **Observation:** While refactoring the multitasking system, a potential race condition and use-after-free scenario were identified regarding shared Page Directories (PD).
+- **Initial State:** In `sys_clone()`, threads were assigned the parent's PD (`child->pd = current_process->pd;`) without any reference counting. During termination, `vmm_free_directory()` would unconditionally destroy page tables and free the PD frame.
+- **Problem:** If one thread exited while others were still active, the shared memory mappings would be destroyed, causing a crash for the surviving threads.
+
+## 2. Initial Refcounting & Hidden Race Condition
+- **Approach:** Introduced physical page reference counting for PD frames.
+    - Added `pmm_inc_ref()` in `sys_clone()` to increment the count when a PD is shared.
+    - Added a check in `vmm_free_directory()` to decrement the count and skip destruction if `pmm_get_ref() > 1`.
+- **The "Hidden" Race Condition:** The `memory_refcounts[frame]++;` operation in `pmm.c` is not atomic at the assembly level.
+    - **Assembly Breakdown (Read-Modify-Write):**
+        1. `mov eax, [addr]` (Read current count)
+        2. `inc eax`        (Modify)
+        3. `mov [addr], eax` (Write back)
+    - **Scenario:** If a context switch occurs between (1) and (3), two threads might read the same initial value, increment it, and write back the same result. Instead of +2, the count only increases by +1 (Lost Update).
+    - **TOCTOU Gap:** Similarly, in `vmm_free_directory()`, a thread could be preempted after checking the count but before decrementing it, leading to inconsistent state.
+
+## 3. Resolution: Kernel Synchronization (IRQ Lock)
+- **Fix:** Protected the critical sections in both `sys_clone()` and `vmm_free_directory()` using a kernel-level synchronization primitive.
+- **Renaming for Clarity:** Renamed `spinlock_t` to `irq_lock_t` since the implementation on a single-core system uses `cli/sti` (disabling/enabling IRQs) rather than busy-waiting.
+- **Implementation:**
+    - **In `kernel/process.c` (`sys_clone`):**
+      ```c
+      irq_lock(&pd_ref_lock);
+      child->pd = current_process->pd;
+      pmm_inc_ref(V2P((uint32_t)child->pd));
+      irq_unlock(&pd_ref_lock);
+      ```
+    - **In `mm/vmm.c` (`vmm_free_directory`):**
+      ```c
+      irq_lock(&pd_ref_lock);
+      if (pmm_get_ref(dir_phys) > 1) {
+          pmm_free_block(dir_phys); 
+          irq_unlock(&pd_ref_lock);
+          return;
+      }
+      irq_unlock(&pd_ref_lock);
+      ```
+- **Outcome:** The shared reference count operations are now atomic. Interrupts are disabled during the entire Check-Then-Act flow, preventing any interleaved execution that could lead to memory corruption or premature resource freeing.
+

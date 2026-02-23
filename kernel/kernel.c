@@ -232,6 +232,10 @@ void print_backspace(); // Forward Declaration
 
 void print_buffer(char *string, int len)
 {
+    // Save current interrupt state and disable interrupts to prevent race condition
+    uint32_t flags;
+    __asm__ volatile("pushf; pop %0; cli" : "=r" (flags));
+
     for (int i = 0; i < len; i++)
     {
         // Handle newline character (\n)
@@ -260,6 +264,11 @@ void print_buffer(char *string, int len)
     }
 
     set_cursor_offset(cursor_offset);
+
+    // Restore interrupt state (if it was enabled before, enable it back)
+    if (flags & 0x200) {
+        __asm__ volatile("sti");
+    }
 }
 
 // Print a string and update the hardware cursor position automatically

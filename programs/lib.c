@@ -140,3 +140,20 @@ int thread_create(void (*func)(void*), void *arg, void *stack) {
     
     return ret;
 }
+
+// 5. Synchronization Primitives
+void spin_lock(volatile int *lock) {
+    // Atomic 'xchg' instruction: Writes 1 to lock and returns the previous value.
+    // Loops (spins) if the lock was already 1. Exits loop if it was 0 (acquired).
+    while (__sync_lock_test_and_set(lock, 1)) {
+        // 'pause' instruction: Hardware hint to save power, prevent pipeline 
+        // flush penalty, and yield hardware resources to other Hyper-Threads.
+        __asm__ volatile("pause");
+    }
+}
+
+void spin_unlock(volatile int *lock) {
+    // Atomic 'mov' instruction: Safely releases the lock by setting it to 0.
+    __sync_lock_release(lock);
+}
+

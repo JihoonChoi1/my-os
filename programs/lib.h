@@ -14,5 +14,7 @@ int exec(char *filename);
 int fork();
 int wait(int *status);
 int thread_create(void (*func)(void*), void *arg, void *stack);
+void spin_lock(volatile int *lock);
+void spin_unlock(volatile int *lock);
 
 #endif

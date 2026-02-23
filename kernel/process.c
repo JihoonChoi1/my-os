@@ -3,6 +3,7 @@
 #include "tss.h"
 #include "vmm.h"
 #include "pmm.h"
+#include "sync.h"
 
 // External function (Assembly) to switch context
 // void switch_task(uint32_t *next_esp, uint32_t **current_esp_ptr);
@@ -230,7 +231,15 @@ int sys_clone(registers_t *regs)
     
     // 3. Shared Memory (CRITICAL DIFFERENCE FROM FORK)
     // Threads share the same Page Directory!
+    extern irq_lock_t pd_ref_lock;
+    irq_lock(&pd_ref_lock);
     child->pd = current_process->pd; 
+    
+    // INCREMENT Reference Count for the Shared Page Directory
+    // Since pd is a virtual pointer in the kernel, we convert it to physical address to get the frame.
+    extern void pmm_inc_ref(uint32_t addr);
+    pmm_inc_ref(V2P((uint32_t)child->pd));
+    irq_unlock(&pd_ref_lock);
     
     // 4. Setup Kernel Stack (Same logic as fork)
     uint32_t *stack_ptr = (uint32_t*)(child->stack + 1024);

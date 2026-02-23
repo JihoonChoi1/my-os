@@ -1,20 +1,20 @@
 #include "sync.h"
 
-// --- Spinlock Implementation ---
-// On a single-core system (UP), spinlock is essentially disabling interrupts.
-// On SMP, it would involve atomic test-and-set and a busy loop.
+// --- IRQ Lock Implementation ---
+// On a single-core system (UP), locking = disabling interrupts (cli/sti).
+// This is NOT a true spinlock — it does not busy-wait.
 
-void spinlock_init(spinlock_t *lock) {
+void irq_lock_init(irq_lock_t *lock) {
     lock->locked = 0;
 }
 
-void spinlock_acquire(spinlock_t *lock) {
+void irq_lock(irq_lock_t *lock) {
     __asm__ volatile("cli");
     // In SMP, we would spin here: while (__sync_lock_test_and_set(&lock->locked, 1));
     lock->locked = 1; 
 }
 
-void spinlock_release(spinlock_t *lock) {
+void irq_unlock(irq_lock_t *lock) {
     lock->locked = 0;
     __asm__ volatile("sti");
 }
@@ -28,18 +28,18 @@ extern process_t *current_process; // Need access to current process
 
 void sem_init(semaphore_t *sem, int value) {
     sem->value = value;
-    spinlock_init(&sem->lock);
+    irq_lock_init(&sem->lock);
     sem->wait_head = 0;
     sem->wait_tail = 0;
 }
 
 void sem_wait(semaphore_t *sem) {
     while (1) {
-        spinlock_acquire(&sem->lock); // Disable Interrupts
+        irq_lock(&sem->lock); // Disable Interrupts
 
         if (sem->value > 0) {
             sem->value--;
-            spinlock_release(&sem->lock); // Enable Interrupts
+            irq_unlock(&sem->lock); // Enable Interrupts
             return;
         }
 
@@ -70,7 +70,7 @@ void sem_wait(semaphore_t *sem) {
 }
 
 void sem_signal(semaphore_t *sem) {
-    spinlock_acquire(&sem->lock);
+    irq_lock(&sem->lock);
 
     sem->value++;
 
@@ -86,7 +86,7 @@ void sem_signal(semaphore_t *sem) {
         unblock_process(waking_process);
     }
 
-    spinlock_release(&sem->lock);
+    irq_unlock(&sem->lock);
 }
 
 // --- Mutex Implementation ---

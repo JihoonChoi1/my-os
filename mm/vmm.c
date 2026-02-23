@@ -1,5 +1,9 @@
 #include "vmm.h"
 #include "pmm.h"
+#include "../kernel/sync.h"
+
+// Global lock to protect page directory reference counting
+irq_lock_t pd_ref_lock;
 
 // External helper for printing
 extern void print_string(char* str);
@@ -93,6 +97,8 @@ int vmm_is_mapped(page_directory* dir, uint32_t virt) {
     return (table->m_entries[pt_index] & I86_PTE_PRESENT);
 }
 void vmm_init() {
+    irq_lock_init(&pd_ref_lock);
+
     // Note: Paging is ALREADY Enabled by head.asm!
     // kernel_directory is already pointing to 3GB Virtual Address of BootPageDirectory.
 
@@ -233,6 +239,19 @@ uint32_t vmm_clone_directory(page_directory* src) {
 void vmm_free_directory(page_directory *dir) {
     // Convert Virtual Address to Physical for PMM freeing later
     uint32_t dir_phys = V2P((uint32_t)dir);
+
+    // [CRITICAL FIX] Check if this directory is shared (e.g., by child threads)
+    extern uint8_t pmm_get_ref(uint32_t addr);
+    
+    irq_lock(&pd_ref_lock);
+    if (pmm_get_ref(dir_phys) > 1) {
+        // Shared directory! Do NOT destroy the user space page tables.
+        // Just decrement the reference count of the directory itself and return.
+        pmm_free_block(dir_phys); 
+        irq_unlock(&pd_ref_lock);
+        return;
+    }
+    irq_unlock(&pd_ref_lock);
 
     // Iterate User Space (0 ~ 767)
     // Kernel Space (768+) is shared, so we DON'T free it!

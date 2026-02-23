@@ -4,19 +4,21 @@
 #include <stdint.h>
 #include "process.h"
 
-// 1. Spinlock (Simple Busy Wait / Interrupt Disable)
+// 1. IRQ Lock (Interrupt Disable Lock)
+// On a single-core system, 'locking' = disabling interrupts (cli/sti).
+// NOT a spinlock — does not busy-wait. Named accurately.
 typedef struct {
     uint32_t locked; // 0=Unlocked, 1=Locked
-} spinlock_t;
+} irq_lock_t;
 
-void spinlock_init(spinlock_t *lock);
-void spinlock_acquire(spinlock_t *lock);
-void spinlock_release(spinlock_t *lock);
+void irq_lock_init(irq_lock_t *lock);
+void irq_lock(irq_lock_t *lock);
+void irq_unlock(irq_lock_t *lock);
 
 // 2. Semaphore (Blocking Wait)
 typedef struct {
     int value;
-    spinlock_t lock;       // Protects the queue
+    irq_lock_t lock;       // Protects the queue
     process_t *wait_head;  // Head of waiting process list (Queue)
     process_t *wait_tail;  // Tail for O(1) append
 } semaphore_t;

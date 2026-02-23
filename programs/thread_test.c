@@ -4,10 +4,7 @@
 volatile int counter = 0;
 
 // Synchronization Primitive (Simple Spinlock)
-// Since we don't have atomic instructions or sys_mutex yet,
-// we'll just demonstrate the RACE CONDITION first.
-// If correct, counter should be 30000.
-// If race occurs, counter < 30000.
+volatile int counter_lock = 0;
 
 void worker(void *arg)
 {
@@ -18,8 +15,10 @@ void worker(void *arg)
 
     for (int i = 0; i < 10000; i++)
     {
-        // Critical Section (Unprotected!)
-        // counter++;
+        // 1. Acquire Lock
+        spin_lock(&counter_lock);
+        
+        // Critical Section
         // To make race more likely, we do: Read -> Delay -> Write
         int temp = counter;
 
@@ -30,7 +29,11 @@ void worker(void *arg)
         }
 
         counter = temp + 1;
+        
+        // 2. Release Lock
+        spin_unlock(&counter_lock);
     }
+
 
     print("Thread ");
     print_dec(id);
