@@ -22,6 +22,7 @@ typedef struct process {
     struct process *next; // Next process in list
     struct process *prev; // Previous process in list
     struct process *wait_next; // Wait Queue (Semaphore/Mutex)
+    int *futex_wait_addr;      // Address this process is waiting on (NULL if not waiting)
 } process_t;
 
 #include "isr.h"
@@ -42,6 +43,8 @@ int sys_clone(registers_t *regs); // Kernel Thread
 int sys_execve(char *filename, char **argv, char **envp, registers_t *regs);
 void sys_exit(int code);
 int sys_wait(int *status);
+int sys_futex_wait(int *addr, int val);  // Block if *addr == val
+void sys_futex_wake(int *addr);          // Wake one process waiting on addr
 
 // Other process-related functions
 void enter_user_mode(uint32_t entry_point);

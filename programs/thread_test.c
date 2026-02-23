@@ -3,8 +3,8 @@
 // Shared Global Variable
 volatile int counter = 0;
 
-// Synchronization Primitive (Simple Spinlock)
-volatile int counter_lock = 0;
+// Synchronization Primitive (Hybrid Mutex)
+user_mutex_t counter_lock;
 
 void worker(void *arg)
 {
@@ -16,7 +16,7 @@ void worker(void *arg)
     for (int i = 0; i < 10000; i++)
     {
         // 1. Acquire Lock
-        spin_lock(&counter_lock);
+        mutex_lock(&counter_lock);
         
         // Critical Section
         // To make race more likely, we do: Read -> Delay -> Write
@@ -31,7 +31,7 @@ void worker(void *arg)
         counter = temp + 1;
         
         // 2. Release Lock
-        spin_unlock(&counter_lock);
+        mutex_unlock(&counter_lock);
     }
 
 
@@ -49,12 +49,7 @@ char stack3[4096];
 
 int main()
 {   
-    print_hex((int)stack1);
-    print("\n");
-    print_hex((int)stack2);
-    print("\n");
-    print_hex((int)stack3);
-    print("\n");
+    mutex_init(&counter_lock);
     print("Thread Test: 3 Threads incrementing counter 10000 times.\n");
 
     int id1 = 1, id2 = 2, id3 = 3;

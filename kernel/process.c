@@ -489,6 +489,105 @@ int sys_wait(int *status)
     }
 }
 
+// ---------------------------------------------------
+// Futex: Fast User-Space Mutex Slow Path (FIFO Queue)
+// ---------------------------------------------------
+
+// Per-address wait queue.
+// Each entry tracks the head and tail of the queue of processes
+// blocked on a specific futex address.
+#define FUTEX_TABLE_SIZE 8
+typedef struct {
+    int *addr;          // The futex address this bucket is for (NULL = unused slot)
+    process_t *head;    // Front of FIFO queue (woken first)
+    process_t *tail;    // Back of FIFO queue (enqueued last)
+} futex_bucket_t;
+
+static futex_bucket_t futex_table[FUTEX_TABLE_SIZE];
+
+// Find or create a bucket for the given addr (interrupts must be off)
+static futex_bucket_t *futex_get_bucket(int *addr)
+{
+    // 1. Try to find existing bucket for this addr
+    for (int i = 0; i < FUTEX_TABLE_SIZE; i++) {
+        if (futex_table[i].addr == addr) return &futex_table[i];
+    }
+    // 2. Allocate a new empty slot
+    for (int i = 0; i < FUTEX_TABLE_SIZE; i++) {
+        if (futex_table[i].addr == 0) {
+            futex_table[i].addr = addr;
+            futex_table[i].head = 0;
+            futex_table[i].tail = 0;
+            return &futex_table[i];
+        }
+    }
+    return 0; // Table full (shouldn't happen with 8 unique locks)
+}
+
+// sys_futex_wait: Block the calling process if *addr == val.
+// Enqueues the caller at the TAIL of the per-addr FIFO queue.
+int sys_futex_wait(int *addr, int val)
+{
+    __asm__ volatile("cli");
+
+    // Re-check the value atomically (with interrupts off).
+    // If a waker already changed it, don't sleep — avoids lost wakeup.
+    if (*addr != val) {
+        __asm__ volatile("sti");
+        return -1;
+    }
+
+    futex_bucket_t *bucket = futex_get_bucket(addr);
+    if (!bucket) {
+        __asm__ volatile("sti");
+        return -1; // Futex table full
+    }
+
+    // Enqueue current process at the TAIL (FIFO order)
+    current_process->wait_next = 0;
+    if (bucket->tail == 0) {
+        bucket->head = current_process;
+        bucket->tail = current_process;
+    } else {
+        bucket->tail->wait_next = current_process;
+        bucket->tail = current_process;
+    }
+
+    current_process->futex_wait_addr = addr;
+    current_process->state = PROCESS_BLOCKED;
+
+    // Context switch (scheduler re-enables interrupts in next process)
+    schedule();
+
+    // Woken up by sys_futex_wake — addr field already cleared by waker
+    return 0;
+}
+
+// sys_futex_wake: Wake one process from the HEAD of the addr's FIFO queue.
+void sys_futex_wake(int *addr)
+{
+    __asm__ volatile("cli");
+
+    for (int i = 0; i < FUTEX_TABLE_SIZE; i++) {
+        if (futex_table[i].addr == addr && futex_table[i].head != 0) {
+            // Dequeue from the HEAD (FIFO: oldest waiter goes first)
+            process_t *waking = futex_table[i].head;
+            futex_table[i].head = waking->wait_next;
+            if (futex_table[i].head == 0) {
+                futex_table[i].tail = 0;       // Queue now empty
+                futex_table[i].addr = 0;       // Release the slot
+            }
+            waking->wait_next = 0;
+            waking->futex_wait_addr = 0;
+            waking->state = PROCESS_READY;
+            break; // Wake only one (like Linux FUTEX_WAKE with val=1)
+        }
+    }
+
+    __asm__ volatile("sti");
+}
+
+
 // PID 1 Entry Point: Launches the Shell
 void launch_shell()
 {

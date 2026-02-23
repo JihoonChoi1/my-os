@@ -1,5 +1,6 @@
 
 // lib.c - Minimal C Library for User Programs
+#include "lib.h"
 
 // System Call Wrapper
 int syscall(int eax, int ebx, int ecx, int edx) {
@@ -157,3 +158,40 @@ void spin_unlock(volatile int *lock) {
     __sync_lock_release(lock);
 }
 
+// 6. Hybrid Mutex (Futex-style)
+// Uses a 3-state lock value for efficiency:
+//   0 = Unlocked
+//   1 = Locked (no waiters)
+//   2 = Contended (locked + waiters sleeping in kernel)
+
+void mutex_init(user_mutex_t *m) {
+    m->lock = 0;
+}
+
+void mutex_lock(user_mutex_t *m) {
+    // Fast Path: Try to atomically swap 0 -> 1.
+    // If successful (old value was 0), we have the lock with zero syscall cost.
+    int old = __sync_val_compare_and_swap(&m->lock, 0, 1);
+    if (old == 0) return; // Acquired immediately!
+
+    // Slow Path: Lock was already held.
+    // Mark as Contended (2) so the unlocker knows to call futex_wake.
+    // Then ask the kernel to sleep us until the address changes.
+    while (__sync_lock_test_and_set(&m->lock, 2) != 0) {
+        // syscall 11 = sys_futex_wait(addr, val)
+        // "Sleep me if m->lock is still 2 (contended)"
+        syscall(11, (int)&m->lock, 2, 0);
+    }
+}
+
+void mutex_unlock(user_mutex_t *m) {
+    // Atomically fetch the old value and set lock to 0.
+    int old = __sync_fetch_and_and(&m->lock, 0);
+
+    // If old was 2 (Contended), there are waiters in the kernel — wake one.
+    if (old == 2) {
+        // syscall 12 = sys_futex_wake(addr)
+        syscall(12, (int)&m->lock, 0, 0);
+    }
+    // If old was 1 (Locked, no waiters), just returning is enough — no wake needed.
+}

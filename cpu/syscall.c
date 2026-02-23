@@ -58,6 +58,8 @@ extern void sys_exit(int code);
 extern int sys_wait(int *status);
 extern int sys_fork(registers_t *regs);
 extern int sys_clone(registers_t *regs);
+extern int sys_futex_wait(int *addr, int val);
+extern void sys_futex_wake(int *addr);
 
 void syscall_handler(registers_t *regs) {
     // Dispatch based on EAX
@@ -92,6 +94,16 @@ void syscall_handler(registers_t *regs) {
             // EAX = sys_clone(regs)
             // EBX = Stack Pointer (New Stack)
             regs->eax = sys_clone(regs);
+            break;
+        case 11: // FUTEX_WAIT
+            // EAX = sys_futex_wait(addr, val)
+            // EBX = addr (pointer to lock variable in user space)
+            // ECX = val (expected value to compare against)
+            regs->eax = sys_futex_wait((int*)regs->ebx, (int)regs->ecx);
+            break;
+        case 12: // FUTEX_WAKE
+            // EBX = addr (pointer to lock variable in user space)
+            sys_futex_wake((int*)regs->ebx);
             break;
         default:
             print_string("Unknown Syscall: ");

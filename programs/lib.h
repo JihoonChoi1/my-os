@@ -17,4 +17,13 @@ int thread_create(void (*func)(void*), void *arg, void *stack);
 void spin_lock(volatile int *lock);
 void spin_unlock(volatile int *lock);
 
+// Hybrid Mutex (Fast Path: user-space atomic, Slow Path: kernel futex)
+typedef struct {
+    volatile int lock; // 0=Unlocked, 1=Locked, 2=Contended (waiters exist)
+} user_mutex_t;
+
+void mutex_init(user_mutex_t *m);
+void mutex_lock(user_mutex_t *m);
+void mutex_unlock(user_mutex_t *m);
+
 #endif
