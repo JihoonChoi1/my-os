@@ -60,6 +60,7 @@ extern int sys_fork(registers_t *regs);
 extern int sys_clone(registers_t *regs);
 extern int sys_futex_wait(int *addr, int val);
 extern void sys_futex_wake(int *addr);
+extern void fs_list_files(); // For SYS_LS (syscall 13)
 
 void syscall_handler(registers_t *regs) {
     // Dispatch based on EAX
@@ -104,6 +105,9 @@ void syscall_handler(registers_t *regs) {
         case 12: // FUTEX_WAKE
             // EBX = addr (pointer to lock variable in user space)
             sys_futex_wake((int*)regs->ebx);
+            break;
+        case 13: // LS — list all files in the filesystem
+            fs_list_files();
             break;
         default:
             print_string("Unknown Syscall: ");

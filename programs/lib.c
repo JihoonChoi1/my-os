@@ -120,6 +120,10 @@ int wait(int *status) {
     return syscall(5, (int)status, 0, 0);
 }
 
+void ls() {
+    syscall(13, 0, 0, 0); // SYS_LS: kernel calls fs_list_files()
+}
+
 // 4. Thread Functions
 // thread_create: Create a new thread
 // func: Function to run

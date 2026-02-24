@@ -41,10 +41,12 @@ void main() {
         if (index == 0) continue;
 
         if (strcmp(buffer, "help") == 0) {
-            print("Commands: help, exec <file>, exit\n");
+            print("Commands: help, ls, exec <file>, exit\n");
         } else if (strcmp(buffer, "exit") == 0) {
             print("Bye!\n");
             exit(0);
+        } else if (strcmp(buffer, "ls") == 0) {
+            ls();
         } else {
             // Check for 'exec '
             if (buffer[0] == 'e' && buffer[1] == 'x' && buffer[2] == 'e' && buffer[3] == 'c' && buffer[4] == ' ') {

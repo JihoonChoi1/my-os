@@ -39,16 +39,34 @@ void keyboard_push(char c) {
     }
 }
 
+// COM1 base port (must match kernel.c)
+#define COM1 0x3F8
+
 char keyboard_getchar() {
-    // Blocking Wait
-    while (kb_head == kb_tail) {
+    while (1) {
+        // --- Serial Input: Check COM1 first (for Docker/headless mode) ---
+        // Line Status Register (COM1+5), bit 0 = Data Ready
+        if (port_byte_in(COM1 + 5) & 0x01) {
+            char c = port_byte_in(COM1); // Read byte from serial
+            // Map CR (\r) to LF (\n) — terminals send \r on Enter
+            if (c == '\r') c = '\n';
+            // Map DEL (\x7F) to BS (\b) — Mac terminal sends \x7F for Backspace
+            if (c == '\x7F') c = '\b';
+            keyboard_push(c);
+        }
+
+        // --- PS/2 Input: If keyboard buffer has data, return it ---
+        if (kb_head != kb_tail) {
+            char c = kb_buffer[kb_tail];
+            kb_tail = (kb_tail + 1) % KEYBOARD_BUFFER_SIZE;
+            return c;
+        }
+
+        // Nothing yet — yield CPU until next interrupt
         __asm__ volatile("hlt");
     }
-    
-    char c = kb_buffer[kb_tail];
-    kb_tail = (kb_tail + 1) % KEYBOARD_BUFFER_SIZE;
-    return c;
 }
+
 
 void keyboard_handler()
 {

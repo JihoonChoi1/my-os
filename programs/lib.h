@@ -13,6 +13,7 @@ void exit(int code);
 int exec(char *filename);
 int fork();
 int wait(int *status);
+void ls();                           // List files (syscall 13)
 int thread_create(void (*func)(void*), void *arg, void *stack);
 void spin_lock(volatile int *lock);
 void spin_unlock(volatile int *lock);
