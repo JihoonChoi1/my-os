@@ -7,7 +7,7 @@
 # Use x86_64 Ubuntu explicitly.
 # On Apple Silicon Macs, Docker defaults to ARM64 where gcc-multilib
 # is unavailable. --platform=linux/amd64 forces x86_64 (via Rosetta).
-FROM --platform=linux/amd64 ubuntu:22.04 AS builder
+FROM ubuntu:22.04 AS builder
 
 RUN apt-get update && apt-get install -y \
   gcc \
@@ -30,7 +30,7 @@ RUN make disk.img CC=gcc LD=ld \
 # ============================================================
 # Stage 2: Minimal runtime — just QEMU + disk.img (~200MB)
 # ============================================================
-FROM --platform=linux/amd64 ubuntu:22.04
+FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
   qemu-system-x86 \
