@@ -28,8 +28,11 @@ static int shift_pressed = 0;
 
 #define KEYBOARD_BUFFER_SIZE 256
 char kb_buffer[KEYBOARD_BUFFER_SIZE];
-int kb_head = 0;
-int kb_tail = 0;
+// volatile: shared with the keyboard ISR (keyboard_push) — without it, the
+// compiler is free to cache these across loop iterations in keyboard_getchar(),
+// which would hide ISR-driven updates once optimizations are enabled.
+volatile int kb_head = 0;
+volatile int kb_tail = 0;
 
 void keyboard_push(char c) {
     int next = (kb_head + 1) % KEYBOARD_BUFFER_SIZE;
