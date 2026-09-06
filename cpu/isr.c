@@ -55,8 +55,7 @@ void isr0_handler()
   print_string("System Halted.\n");
 
   // Halt the system with an infinite loop since a fatal error occurred
-  while (1)
-    ;
+  while (1);
 }
 
 // Include Memory Managers

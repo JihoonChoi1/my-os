@@ -52,8 +52,10 @@ void set_idt()
   // Register System Call Handler (INT 0x80 = 128)
   set_idt_gate(128, (uint32_t)isr128);
   // Critical: Set DPL=3 (User Privilege)
-  // 0xEF = 1110 1110 (P=1, DPL=11, Type=1111)
-  idt[128].flags = 0xEF; 
+  // 0xEF = 1110 1111 (P=1, DPL=11, Type=1111)
+  // Type 1111 is a trap gate, not an interrupt gate (0xEE): entry leaves IF set,
+  // so a syscall that blocks waiting on an IRQ can still be woken by it.
+  idt[128].flags = 0xEF;
 
   // Execute "lidt" instruction (Load IDT)
   // Using inline assembly to execute assembly instructions within C code.
