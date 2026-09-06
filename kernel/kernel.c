@@ -1,7 +1,6 @@
 // kernel.c - Video driver with Hardware Cursor Control via Port I/O
 #include "idt.h"
 #include "ports.h"
-#include "ports.h"
 #include "shell.h"
 #include "timer.h"
 #include "process.h"
