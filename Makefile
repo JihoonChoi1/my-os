@@ -53,8 +53,8 @@ mkfs: tools/mkfs.c fs/fs.h
 ASM_OBJS = kernel/context_switch.o
 
 # kernel.bin requires assembly objects, C objects, and extra ASM objects
-kernel.bin: kernel/head.o cpu/interrupt.o ${OBJ_FILES} ${ASM_OBJS}
-	${LD} -o $@ $^ ${LDFLAGS}
+kernel.bin: kernel/head.o cpu/interrupt.o ${OBJ_FILES} ${ASM_OBJS} kernel.ld
+	${LD} -o $@ $(filter-out kernel.ld,$^) ${LDFLAGS}
  
 # --------------------------------------------------------
 # Bootloader Compilation
