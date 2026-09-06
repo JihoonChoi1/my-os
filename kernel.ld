@@ -39,7 +39,9 @@ SECTIONS
     /* * .bss: Uninitialized variables (zero-filled by the kernel or bootloader) 
      */
     .bss : AT(ADDR(.bss) - 0xC0000000) {
+        _bss_start = .;
         *(.bss)
+        _bss_end = .;
     }
 
     /* * _kernel_end: A symbol used in the C/C++ code to mark the 

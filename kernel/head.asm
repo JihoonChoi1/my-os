@@ -14,8 +14,21 @@ KERNEL_PAGE_NUMBER  equ (KERNEL_VIRTUAL_BASE >> 22) ; Page Directory Index for 3
 section .text
 global _start
 extern main  ; The C Kernel Main function
+extern _bss_start
+extern _bss_end
 
 _start:
+    ; -------------------------------------------------------------------------
+    ; 0. Zero out the BSS section (MUST BE DONE FIRST)
+    ; We must use physical addresses here because paging is not yet enabled.
+    ; This also ensures BootPageDirectory and BootPageTable are clean (all 0s).
+    ; -------------------------------------------------------------------------
+    mov edi, (_bss_start - KERNEL_VIRTUAL_BASE)
+    mov ecx, (_bss_end - KERNEL_VIRTUAL_BASE)
+    sub ecx, edi
+    xor eax, eax
+    rep stosb
+
     ; -------------------------------------------------------------------------
     ; 1. Setup Page Directory (The "Manual" Way)
     ; NOTE: We are currently running at PHYSICAL address (approx 1MB), 
