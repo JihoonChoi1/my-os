@@ -71,8 +71,7 @@ void main() {
                      int status;
                      wait(&status);
                      print("Child exited with code: ");
-                     // print_dec(status); // Need print_dec in lib.c? Not there yet.
-                     // Just use hex or simple char for now, or just print message.
+                     print_dec(status);
                      print("\n");
                  }
             } else {

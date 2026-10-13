@@ -92,7 +92,7 @@ int main()
     }
     else
     {
-        print("Success? (Or just lucky)\n");
+        print("No lost updates: the mutex kept the critical section exclusive.\n");
     }
     exit(0);
 }
