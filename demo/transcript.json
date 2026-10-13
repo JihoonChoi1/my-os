@@ -1,0 +1,680 @@
+{
+ "captured_at": "2026-10-13T00:02:42+00:00",
+ "commit": "3bb6fd4",
+ "dirty": false,
+ "emulator": "QEMU emulator version 11.1.2",
+ "command": "make disk.img && qemu-system-i386 -display none -serial stdio -no-shutdown -snapshot -m 128M -drive format=raw,file=disk.img",
+ "boot": {
+  "lines": [
+   {
+    "t": 0.0,
+    "text": "MyOS - a 32-bit x86 kernel built from scratch"
+   },
+   {
+    "t": 0.0,
+    "text": "[boot] Kernel entered at 0xC0100CEA (higher half, loaded at 0x100000)"
+   },
+   {
+    "t": 0.0,
+    "text": "[cpu ] PIC remapped: IRQ 0-15 -> INT 32-47"
+   },
+   {
+    "t": 0.001,
+    "text": "[cpu ] IDT loaded: #DE, #PF, timer, keyboard, syscall gate INT 0x80"
+   },
+   {
+    "t": 0.001,
+    "text": "[cpu ] GDT and TSS loaded: Ring 0 kernel, Ring 3 user segments"
+   },
+   {
+    "t": 0.001,
+    "text": "[pit ] Timer at 50 Hz: each tick preempts into the scheduler"
+   },
+   {
+    "t": 0.001,
+    "text": "[vmm ] Direct-mapped physical 0-128 MB at 0xC0000000"
+   },
+   {
+    "t": 0.002,
+    "text": "[vmm ] VGA text buffer mapped at 0xC00B8000"
+   },
+   {
+    "t": 0.002,
+    "text": "[pmm ] BIOS E820 memory map: 6 entries"
+   },
+   {
+    "t": 0.004,
+    "text": "[pmm ] RAM: 127 MB = 32736 frames of 4 KB, tracked in a bitmap"
+   },
+   {
+    "t": 0.006,
+    "text": "[pmm ] Reserved frames 0x0 - 0x176000: BIOS area and kernel image"
+   },
+   {
+    "t": 0.006,
+    "text": "[pmm ] Reserved frames 0x7FDC000 - 0x7FE0000: kernel stack"
+   },
+   {
+    "t": 0.006,
+    "text": "[pmm ] Free: 32358 frames"
+   },
+   {
+    "t": 0.007,
+    "text": "[pmm ] Self-test: allocated frame 0x176000, freed it"
+   },
+   {
+    "t": 0.007,
+    "text": "[heap] Kernel heap at 0xC0176000, 1 MB, doubly linked free list"
+   },
+   {
+    "t": 0.007,
+    "text": "[heap] Self-test: 3 freed blocks coalesced into one"
+   },
+   {
+    "t": 0.007,
+    "text": "[ata ] Read sector 0 over PIO: boot signature 0x55 0xAA"
+   },
+   {
+    "t": 0.008,
+    "text": "[fs  ] SimpleFS mounted: 20480 blocks"
+   },
+   {
+    "t": 0.008,
+    "text": "[proc] Multitasking on: the kernel itself is PID 0 (idle)"
+   },
+   {
+    "t": 0.008,
+    "text": "[proc] Created PID 1"
+   },
+   {
+    "t": 0.009,
+    "text": "[proc] PID 1: loading the user shell, then IRET to Ring 3"
+   },
+   {
+    "t": 0.009,
+    "text": "[elf ] Loading shell.elf"
+   },
+   {
+    "t": 0.009,
+    "text": "[elf ] Segment at 0x400000: 0x800 bytes from disk, 0x800 in memory"
+   },
+   {
+    "t": 0.011,
+    "text": "[elf ] Entry point: 0x400000"
+   },
+   {
+    "t": 0.011,
+    "text": "Welcome to User Land Shell!"
+   },
+   {
+    "t": 0.012,
+    "text": "Type 'help' for commands."
+   }
+  ]
+ },
+ "steps": [
+  {
+   "input": "help",
+   "lines": [
+    {
+     "t": 0.01,
+     "text": "Commands: help, ls, exec <file>, exit"
+    }
+   ]
+  },
+  {
+   "input": "ls",
+   "lines": [
+    {
+     "t": 0.011,
+     "text": "--- File List ---"
+    },
+    {
+     "t": 0.013,
+     "text": "  - kernel.bin (20096 bytes)"
+    },
+    {
+     "t": 0.015,
+     "text": "  - hello.elf (10712 bytes)"
+    },
+    {
+     "t": 0.017,
+     "text": "  - shell.elf (12208 bytes)"
+    },
+    {
+     "t": 0.019,
+     "text": "  - fork_cow.elf (11756 bytes)"
+    },
+    {
+     "t": 0.02,
+     "text": "  - thread_test.elf (12800 bytes)"
+    },
+    {
+     "t": 0.022,
+     "text": "  - producer_consumer.elf (13712 bytes)"
+    },
+    {
+     "t": 0.024,
+     "text": "-----------------"
+    }
+   ]
+  },
+  {
+   "input": "exec hello.elf",
+   "lines": [
+    {
+     "t": 0.037,
+     "text": "[cow ] Write to shared page 0xF00000: copied frame 0x279000 -> 0x27E000"
+    },
+    {
+     "t": 0.039,
+     "text": "Executing: hello.elf"
+    },
+    {
+     "t": 0.042,
+     "text": "[elf ] Loading hello.elf"
+    },
+    {
+     "t": 0.044,
+     "text": "[elf ] Segment at 0x400000: 0x50C bytes from disk, 0x50C in memory"
+    },
+    {
+     "t": 0.048,
+     "text": "[cow ] Write to shared page 0x400000: copied frame 0x277000 -> 0x27F000"
+    },
+    {
+     "t": 0.051,
+     "text": "[elf ] Entry point: 0x400000"
+    },
+    {
+     "t": 0.053,
+     "text": "Hello from User Space! (Ring 3)"
+    },
+    {
+     "t": 0.055,
+     "text": "This is a real C program loaded from disk."
+    },
+    {
+     "t": 0.076,
+     "text": "[proc] PID 2 exited with code 0"
+    },
+    {
+     "t": 0.078,
+     "text": "Child exited with code: 0"
+    }
+   ]
+  },
+  {
+   "input": "exec fork_cow.elf",
+   "lines": [
+    {
+     "t": 0.028,
+     "text": "[cow ] Write to shared page 0xF00000: copied frame 0x27E000 -> 0x27D000"
+    },
+    {
+     "t": 0.03,
+     "text": "Executing: fork_cow.elf"
+    },
+    {
+     "t": 0.031,
+     "text": "[elf ] Loading fork_cow.elf"
+    },
+    {
+     "t": 0.033,
+     "text": "[elf ] Segment at 0x400000: 0x7A4 bytes from disk, 0x7A4 in memory"
+    },
+    {
+     "t": 0.037,
+     "text": "[cow ] Write to shared page 0x400000: copied frame 0x277000 -> 0x27F000"
+    },
+    {
+     "t": 0.039,
+     "text": "[elf ] Entry point: 0x400000"
+    },
+    {
+     "t": 0.041,
+     "text": "COW Fork Test Starting..."
+    },
+    {
+     "t": 0.044,
+     "text": "Parent: global_var = 100"
+    },
+    {
+     "t": 0.046,
+     "text": "[cow ] Write to shared page 0xF00000: copied frame 0x27E000 -> 0x283000"
+    },
+    {
+     "t": 0.069,
+     "text": "Parent: Created Child PID 4"
+    },
+    {
+     "t": 0.07,
+     "text": "Parent: Waiting for Child..."
+    },
+    {
+     "t": 0.072,
+     "text": "Child: Created! global_var = 100"
+    },
+    {
+     "t": 0.074,
+     "text": "Child: Writing to global_var (Should trigger COW)..."
+    },
+    {
+     "t": 0.075,
+     "text": "[cow ] Write to shared page 0x400000: copied frame 0x27F000 -> 0x284000"
+    },
+    {
+     "t": 0.077,
+     "text": "Child: global_var is now 200"
+    },
+    {
+     "t": 0.079,
+     "text": "[proc] PID 4 exited with code 0"
+    },
+    {
+     "t": 0.081,
+     "text": "Parent: Child Exited."
+    },
+    {
+     "t": 0.088,
+     "text": "Parent: global_var = 100 (Should be 100)"
+    },
+    {
+     "t": 0.089,
+     "text": "COW TEST PASSED: Parent's memory was isolated."
+    },
+    {
+     "t": 0.091,
+     "text": "[proc] PID 3 exited with code 0"
+    },
+    {
+     "t": 0.093,
+     "text": "Child exited with code: 0"
+    }
+   ]
+  },
+  {
+   "input": "exec thread_test.elf",
+   "lines": [
+    {
+     "t": 0.024,
+     "text": "[cow ] Write to shared page 0xF00000: copied frame 0x27D000 -> 0x27E000"
+    },
+    {
+     "t": 0.026,
+     "text": "Executing: thread_test.elf"
+    },
+    {
+     "t": 0.027,
+     "text": "[elf ] Loading thread_test.elf"
+    },
+    {
+     "t": 0.029,
+     "text": "[elf ] Segment at 0x400000: 0x889 bytes from disk, 0x38C0 in memory"
+    },
+    {
+     "t": 0.033,
+     "text": "[cow ] Write to shared page 0x400000: copied frame 0x277000 -> 0x282000"
+    },
+    {
+     "t": 0.036,
+     "text": "[elf ] Entry point: 0x4000CD"
+    },
+    {
+     "t": 0.038,
+     "text": "Thread Test: 3 Threads incrementing counter 10000 times."
+    },
+    {
+     "t": 0.04,
+     "text": "Created Thread 1 (PID 6)"
+    },
+    {
+     "t": 0.042,
+     "text": "Thread 1 starting..."
+    },
+    {
+     "t": 0.044,
+     "text": "Created Thread 2 (PID 7)"
+    },
+    {
+     "t": 0.084,
+     "text": "Created Thread 3 (PID 8)"
+    },
+    {
+     "t": 0.086,
+     "text": "Thread 2 starting..."
+    },
+    {
+     "t": 0.102,
+     "text": "Thread 3 starting..."
+    },
+    {
+     "t": 0.103,
+     "text": "Thread 1 finished."
+    },
+    {
+     "t": 0.693,
+     "text": "[proc] PID 6 exited with code 0"
+    },
+    {
+     "t": 0.695,
+     "text": "Thread 2 finished."
+    },
+    {
+     "t": 1.914,
+     "text": "[proc] PID 7 exited with code 0"
+    },
+    {
+     "t": 1.916,
+     "text": "Thread 3 finished."
+    },
+    {
+     "t": 1.96,
+     "text": "[proc] PID 8 exited with code 0"
+    },
+    {
+     "t": 1.961,
+     "text": "All threads finished."
+    },
+    {
+     "t": 1.964,
+     "text": "Final Counter Value: 30000"
+    },
+    {
+     "t": 1.966,
+     "text": "Expected Value: 30000"
+    },
+    {
+     "t": 1.967,
+     "text": "No lost updates: the mutex kept the critical section exclusive."
+    },
+    {
+     "t": 1.97,
+     "text": "[proc] PID 5 exited with code 0"
+    },
+    {
+     "t": 1.971,
+     "text": "Child exited with code: 0"
+    }
+   ]
+  },
+  {
+   "input": "exec producer_consumer.elf",
+   "lines": [
+    {
+     "t": 0.028,
+     "text": "[cow ] Write to shared page 0xF00000: copied frame 0x27E000 -> 0x27D000"
+    },
+    {
+     "t": 0.03,
+     "text": "Executing: producer_consumer.elf"
+    },
+    {
+     "t": 0.031,
+     "text": "[elf ] Loading producer_consumer.elf"
+    },
+    {
+     "t": 0.033,
+     "text": "[elf ] Segment at 0x400000: 0x983 bytes from disk, 0x69E0 in memory"
+    },
+    {
+     "t": 0.038,
+     "text": "[cow ] Write to shared page 0x400000: copied frame 0x277000 -> 0x285000"
+    },
+    {
+     "t": 0.042,
+     "text": "[elf ] Entry point: 0x40024C"
+    },
+    {
+     "t": 0.044,
+     "text": "=== Producer-Consumer Demo (2P / 4C) ==="
+    },
+    {
+     "t": 0.046,
+     "text": "Buffer: 5 | Producers: 2x10 | Consumers: 4x5 | Total: 20 items"
+    },
+    {
+     "t": 0.069,
+     "text": "-----------------------------------------"
+    },
+    {
+     "t": 0.07,
+     "text": "[P1] Produced: 100"
+    },
+    {
+     "t": 0.072,
+     "text": "[P1] Produced: 101"
+    },
+    {
+     "t": 0.074,
+     "text": "[P1] Produced: 102"
+    },
+    {
+     "t": 0.075,
+     "text": "[P1] Produced: 103"
+    },
+    {
+     "t": 0.077,
+     "text": "[P1] Produced: 104"
+    },
+    {
+     "t": 0.079,
+     "text": "  [C1] Consumed: 100"
+    },
+    {
+     "t": 0.081,
+     "text": "  [C1] Consumed: 101"
+    },
+    {
+     "t": 0.082,
+     "text": "  [C1] Consumed: 102"
+    },
+    {
+     "t": 0.084,
+     "text": "  [C1] Consumed: 103"
+    },
+    {
+     "t": 0.085,
+     "text": "  [C1] Consumed: 104"
+    },
+    {
+     "t": 0.087,
+     "text": "  [C1] Done."
+    },
+    {
+     "t": 0.108,
+     "text": "[proc] PID 12 exited with code 0"
+    },
+    {
+     "t": 0.109,
+     "text": "[P1] Produced: 105"
+    },
+    {
+     "t": 0.128,
+     "text": "[P1] Produced: 106"
+    },
+    {
+     "t": 0.13,
+     "text": "[P1] Produced: 107"
+    },
+    {
+     "t": 0.132,
+     "text": "[P1] Produced: 108"
+    },
+    {
+     "t": 0.133,
+     "text": "[P2] Produced: 200"
+    },
+    {
+     "t": 0.135,
+     "text": "  [C2] Consumed: 105"
+    },
+    {
+     "t": 0.136,
+     "text": "  [C2] Consumed: 106"
+    },
+    {
+     "t": 0.138,
+     "text": "  [C2] Consumed: 107"
+    },
+    {
+     "t": 0.14,
+     "text": "  [C3] Consumed: 108"
+    },
+    {
+     "t": 0.141,
+     "text": "  [C4] Consumed: 200"
+    },
+    {
+     "t": 0.143,
+     "text": "[P1] Produced: 109"
+    },
+    {
+     "t": 0.148,
+     "text": "[P1] Done."
+    },
+    {
+     "t": 0.15,
+     "text": "[proc] PID 10 exited with code 0"
+    },
+    {
+     "t": 0.152,
+     "text": "[P2] Produced: 201"
+    },
+    {
+     "t": 0.153,
+     "text": "[P2] Produced: 202"
+    },
+    {
+     "t": 0.155,
+     "text": "[P2] Produced: 203"
+    },
+    {
+     "t": 0.157,
+     "text": "[P2] Produced: 204"
+    },
+    {
+     "t": 0.158,
+     "text": "  [C2] Consumed: 109"
+    },
+    {
+     "t": 0.16,
+     "text": "  [C2] Consumed: 201"
+    },
+    {
+     "t": 0.162,
+     "text": "  [C2] Done."
+    },
+    {
+     "t": 0.163,
+     "text": "[proc] PID 13 exited with code 0"
+    },
+    {
+     "t": 0.165,
+     "text": "  [C3] Consumed: 202"
+    },
+    {
+     "t": 0.166,
+     "text": "  [C3] Consumed: 203"
+    },
+    {
+     "t": 0.168,
+     "text": "  [C4] Consumed: 204"
+    },
+    {
+     "t": 0.189,
+     "text": "[P2] Produced: 205"
+    },
+    {
+     "t": 0.208,
+     "text": "[P2] Produced: 206"
+    },
+    {
+     "t": 0.209,
+     "text": "[P2] Produced: 207"
+    },
+    {
+     "t": 0.211,
+     "text": "[P2] Produced: 208"
+    },
+    {
+     "t": 0.213,
+     "text": "[P2] Produced: 209"
+    },
+    {
+     "t": 0.214,
+     "text": "[P2] Done."
+    },
+    {
+     "t": 0.216,
+     "text": "[proc] PID 11 exited with code 0"
+    },
+    {
+     "t": 0.218,
+     "text": "  [C3] Consumed: 205"
+    },
+    {
+     "t": 0.219,
+     "text": "  [C3] Consumed: 206"
+    },
+    {
+     "t": 0.221,
+     "text": "  [C3] Done."
+    },
+    {
+     "t": 0.223,
+     "text": "[proc] PID 14 exited with code 0"
+    },
+    {
+     "t": 0.224,
+     "text": "  [C4] Consumed: 207"
+    },
+    {
+     "t": 0.226,
+     "text": "  [C4] Consumed: 208"
+    },
+    {
+     "t": 0.228,
+     "text": "  [C4] Consumed: 209"
+    },
+    {
+     "t": 0.249,
+     "text": "  [C4] Done."
+    },
+    {
+     "t": 0.251,
+     "text": "[proc] PID 15 exited with code 0"
+    },
+    {
+     "t": 0.252,
+     "text": "-----------------------------------------"
+    },
+    {
+     "t": 0.269,
+     "text": "=== All threads finished. 20/20 items ==="
+    },
+    {
+     "t": 0.271,
+     "text": "[proc] PID 9 exited with code 0"
+    },
+    {
+     "t": 0.273,
+     "text": "Child exited with code: 0"
+    }
+   ]
+  },
+  {
+   "input": "exit",
+   "lines": [
+    {
+     "t": 0.021,
+     "text": "Bye!"
+    },
+    {
+     "t": 0.023,
+     "text": "[proc] PID 1 exited with code 0"
+    }
+   ]
+  }
+ ]
+}
