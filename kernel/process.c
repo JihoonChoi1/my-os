@@ -85,7 +85,7 @@ void init_multitasking()
     current_process = process_list;
     next_pid = 1;
 
-    print_string("Multitasking Initialized. Kernel is PID 0.\n");
+    print_string("[proc] Multitasking on: the kernel itself is PID 0 (idle)\n");
 }
 
 // Setup a stack for a new task
@@ -129,7 +129,7 @@ void create_task(void (*function)())
 
     new_task->esp = stack_ptr + 1;
 
-    print_string("Created Task PID ");
+    print_string("[proc] Created PID ");
     print_dec(pid);
     print_string("\n");
 
@@ -416,11 +416,11 @@ void sys_exit(int code)
     current_process->exit_code = code;
     current_process->state = PROCESS_TERMINATED;
 
-    print_string("\n[Kernel] Process ");
+    print_string("[proc] PID ");
     print_dec(current_process->id);
     print_string(" exited with code ");
     print_dec(code);
-    print_string(".\n");
+    print_string("\n");
 
     // Wake up parent if it is blocked waiting for us
     if (current_process->parent_id != -1) {
@@ -593,7 +593,7 @@ void launch_shell()
 {
     extern uint32_t elf_load(char *filename);
 
-    print_string("[Kernel] Launching User Shell (PID 1)...\n");
+    print_string("[proc] PID 1: loading the user shell, then IRET to Ring 3\n");
 
     // 1. Load Shell
     // Note: This loads code into 0x400000.
@@ -622,7 +622,7 @@ void launch_shell()
     }
     else
     {
-        print_string("[Kernel] Error: Could not load shell.elf\n");
+        print_string("[proc] Error: Could not load shell.elf\n");
         while (1)
             ;
     }

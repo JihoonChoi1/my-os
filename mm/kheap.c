@@ -34,9 +34,9 @@ void kheap_init() {
     free_list->next = 0; // End of list
     free_list->prev = 0; // Start of list
 
-    print_string("KHEAP: Initialized at 0x");
+    print_string("[heap] Kernel heap at ");
     print_hex(heap_start);
-    print_string(" (Size: 1MB)\n");
+    print_string(", 1 MB, doubly linked free list\n");
 }
 
 void *kmalloc(uint32_t size) {

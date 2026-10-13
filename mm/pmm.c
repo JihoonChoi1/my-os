@@ -67,10 +67,9 @@ void pmm_init(uint32_t kernel_end) {
     uint16_t entry_count = *(uint16_t*)(0xC0000000 + 0x8000);
     mmap_entry_t* entries = (mmap_entry_t*)(0xC0000000 + 0x8004);
 
-    print_string("PMM: Parsing Memory Map...\n");
-    print_string("Entries detected: ");
+    print_string("[pmm ] BIOS E820 memory map: ");
     print_dec(entry_count);
-    print_string("\n");
+    print_string(" entries\n");
 
     uint32_t max_ram = 0;
 
@@ -116,18 +115,16 @@ void pmm_init(uint32_t kernel_end) {
     
     // Calculate total blocks
     total_memory_blocks = max_ram / PMM_BLOCK_SIZE;
-    print_dec(total_memory_blocks);
-    print_string("\n");
     //while(1);
     if (total_memory_blocks > BITMAP_SIZE * 8) {
         total_memory_blocks = BITMAP_SIZE * 8; // Cap at bitmap limit
     }
-    print_dec(total_memory_blocks);
-    print_string("\n");
     //while(1);
-    print_string("Total RAM detected: ");
+    print_string("[pmm ] RAM: ");
     print_dec(max_ram / 1024 / 1024);
-    print_string(" MB\n");
+    print_string(" MB = ");
+    print_dec(total_memory_blocks);
+    print_string(" frames of 4 KB, tracked in a bitmap\n");
 
     // Mark Kernel Region + VMM Static Regions as USED
     // VMM maps:
@@ -142,33 +139,25 @@ void pmm_init(uint32_t kernel_end) {
     // Now that we support Higher Half Kernel and dynamic mapping,
     // we only need to reserve the physical memory actually used by the kernel image.
     // The rest (from kernel_end upwards) is free for PMM to allocate.
-    print_hex(kernel_end);
-    print_string("\n");
     //while(1);
     uint32_t kernel_end_phys = kernel_end - 0xC0000000;
-    print_hex(kernel_end_phys);
-    print_string("\n");
     //while(1);
     // Align up to next block boundary
     uint32_t reserved_limit_block = (kernel_end_phys + PMM_BLOCK_SIZE - 1) / PMM_BLOCK_SIZE; 
     
     // Align up to next block boundary
-    print_dec(total_memory_blocks);
-    print_string("\n");
     //while(1);
     // Protect 0x0 up to Kernel End
-    print_hex(reserved_limit_block);
-    print_string("\n");
     //while(1);
     for (uint32_t i = 0; i < reserved_limit_block; i++) {
         mmap_set(i);
         memory_refcounts[i] = 1; // Mark as owned by Kernel
     }
-    print_dec(total_memory_blocks);
-    print_string("\n");
     //while(1);
     
-    print_string("PMM: Reserved Low Memory up to Kernel End.\n");
+    print_string("[pmm ] Reserved frames 0x0 - ");
+    print_hex(reserved_limit_block * PMM_BLOCK_SIZE);
+    print_string(": BIOS area and kernel image\n");
     
     // [CRITICAL] Reserve the last 16KB for the Kernel Stack (Phase 2 Safety)
     // Detailed Logic: Replicate loader.asm's stack selection to be 100% sure.
@@ -185,21 +174,17 @@ void pmm_init(uint32_t kernel_end) {
     
     uint32_t start_reserved_block = stack_bottom / PMM_BLOCK_SIZE;
     uint32_t end_reserved_block = total_memory_blocks; // Up to the very end
-    print_dec(end_reserved_block);
-    print_string("\n");
-    print_dec(start_reserved_block);
-    print_string("\n");
     //while(1);
     if (end_reserved_block > start_reserved_block) {
         for (uint32_t i = start_reserved_block; i < end_reserved_block; i++) {
              mmap_set(i);
              memory_refcounts[i] = 1; // Mark as owned by Kernel Stack
         }
-        print_string("PMM: Reserved Stack from ");
+        print_string("[pmm ] Reserved frames ");
         print_hex(stack_bottom);
-        print_string(" to ");
+        print_string(" - ");
         print_hex(stack_top_aligned);
-        print_string("\n");
+        print_string(": kernel stack\n");
     }
 
     // Recalculate used blocks count
@@ -209,10 +194,9 @@ void pmm_init(uint32_t kernel_end) {
             used_memory_blocks++;
         }
     }
-
-    print_string("PMM: Kernel Reserved up to: ");
-    print_hex(kernel_end);
-    print_string("\n");
+    print_string("[pmm ] Free: ");
+    print_dec(total_memory_blocks - used_memory_blocks);
+    print_string(" frames\n");
 }
 
 uint32_t pmm_alloc_block() {

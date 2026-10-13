@@ -358,44 +358,20 @@ void main()
     serial_init(); // Initialize COM1 for mirrored output to host terminal
     clear_screen();
     
-    // while(1);
-    // 1. Initial messages
-    print_string("Phase 1: Bootloader Fixed.\n");
-    print_string("Phase 2: Kernel Loaded Successfully.\n");
-    print_string("Phase 3: Newline support is now ACTIVE!\n");
-    print_string("Phase 4: Scrolling test initiated...\n");
-    // while(1);
-    // 2. Fill the screen to trigger scrolling
-    // We print many lines to force the text to go beyond row 24.
-    int i = 0;
-    for (i = 0; i < 21; i++)
-    {
-        print_string("Filling line for testing...\n");
-    }
-
-    print_string("\nCheck\n");
-
-    print_string("Decimal Test (100): ");
-    print_dec(100);
-    print_string("\n");
-
-    print_string("Hex Test (0x1000): ");
-    print_hex(0x1000);
-    print_string("\n");
-
-    print_string("Video Memory (0xB8000): ");
-    print_hex(VIDEO_MEMORY);
-    print_string("\n");
+    print_string("MyOS - a 32-bit x86 kernel built from scratch\n");
+    print_string("[boot] Kernel entered at ");
+    print_hex((uint32_t)main);
+    print_string(" (higher half, loaded at 0x100000)\n");
 
     pic_remap();
-    print_string("Phase 4: PIC Remapped (IRQ 0-15 -> INT 32-47).\n");
+    print_string("[cpu ] PIC remapped: IRQ 0-15 -> INT 32-47\n");
     set_idt();
-    print_string("IDT loaded successfully!\n");
+    print_string("[cpu ] IDT loaded: #DE, #PF, timer, keyboard, syscall gate INT 0x80\n");
 
     // Initialize GDT and TSS 
     init_gdt();
     init_tss();
-    print_string("GDT & TSS Initialized.\n");
+    print_string("[cpu ] GDT and TSS loaded: Ring 0 kernel, Ring 3 user segments\n");
     // Initialize Timer (50 Hz)
     init_timer(50);
     //while(1);
@@ -407,9 +383,8 @@ void main()
     //while(1);
     pmm_init((uint32_t)&_kernel_end);
     // Verify PMM
-    print_string("--- PMM TEST ---\n");
     uint32_t p1 = pmm_alloc_block();
-    print_string("Allocated: 0x"); print_hex(p1); print_string("\n");
+    print_string("[pmm ] Self-test: allocated frame "); print_hex(p1); print_string(", freed it\n");
     pmm_free_block(p1);
     // Initialize Virtual Memory (Identity Map)
 
@@ -450,17 +425,17 @@ void main()
     void* ptr_big = kmalloc(256 * 3);
     //print_string("Allocated Big: 0x"); print_hex((uint32_t)ptr_big); print_string("\n");
 
-    // if (ptr_big == ptr_a) {
-    //     print_string("SUCCESS! Blocks merged perfectly.\n");
-    // } else {
-    //     print_string("FAILURE! Fragmentation detected.\n");
-    // }
-    // print_string("----------------------------\n");
+    if (ptr_big == ptr_a) {
+        print_string("[heap] Self-test: 3 freed blocks coalesced into one\n");
+    } else {
+        print_string("[heap] Self-test FAILED: fragmentation detected\n");
+    }
+    kfree(ptr_big);
+
     // --- ATA Driver Test ---
-    print_string("Testing ATA Driver...\n");
     uint8_t sect[512];
     ata_read_sector(0, sect); // Read MBR (Sector 0)
-    print_string("Read Sector 0. Signature: ");
+    print_string("[ata ] Read sector 0 over PIO: boot signature ");
     print_hex(sect[510]);
     print_string(" ");
     print_hex(sect[511]);

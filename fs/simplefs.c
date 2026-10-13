@@ -22,7 +22,6 @@ static int strcmp(char *s1, char *s2) {
 }
 
 void fs_init() {
-    print_string("Initializing SimpleFS...\n");
     
     // 1. Read Superblock (Sector 17)
     // Why 17? MBR(1) + Reserved(16)
@@ -40,9 +39,9 @@ void fs_init() {
     
     // Copy to global
     sb = *read_sb;
-    print_string("[FS] Mount Success! Total Blocks: ");
+    print_string("[fs  ] SimpleFS mounted: ");
     print_dec(sb.total_blocks);
-    print_string("\n");
+    print_string(" blocks\n");
 }
 
 // Find a file by name and return its Inode

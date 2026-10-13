@@ -130,16 +130,14 @@ void vmm_init() {
     }
     uint32_t pd_phys = V2P((uint32_t)kernel_directory);
     __asm__ volatile("mov %0, %%cr3" : : "r"(pd_phys) : "memory");      
-    print_string("VMM: Direct Mapping (0-128MB) Established.\n");
+    print_string("[vmm ] Direct-mapped physical 0-128 MB at 0xC0000000\n");
 
     // 2. Map VGA Buffer (Physical 0xB8000) to Virtual 0xC00B8000
     // This allows us to access VGA memory using Higher Half addresses.
     vmm_map_page(0xC00B8000, 0xB8000, I86_PTE_PRESENT | I86_PTE_WRITABLE);
     
 
-    print_string("VMM: Initialized in Higher Half!\n");
-    print_string("VMM: Mapped VGA to 0xC00B8000\n");
-    print_string("VMM: Mapped Legacy Regions (Heap, User).\n");
+    print_string("[vmm ] VGA text buffer mapped at 0xC00B8000\n");
 }
 
 // Helper: Copy physical page

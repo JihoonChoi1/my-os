@@ -47,7 +47,7 @@ void init_timer(uint32_t freq) {
     port_byte_out(0x40, low);
     port_byte_out(0x40, high);
 
-    print_string("PIT Initialized @ ");
+    print_string("[pit ] Timer at ");
     print_dec(freq);
-    print_string("Hz\n");
+    print_string(" Hz: each tick preempts into the scheduler\n");
 }

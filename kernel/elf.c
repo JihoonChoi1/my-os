@@ -19,13 +19,13 @@ void my_memset(char *dest, char val, int nbytes) {
 
 uint32_t elf_load(char *filename) {
     //while(1);
-    print_string("[ELF] Loading file: ");
+    print_string("[elf ] Loading ");
     print_string(filename);
     print_string("\n");
     sfs_inode inode;
     if (!fs_find_file(filename, &inode)) {
         //while(1);
-        print_string("[ELF] Error: File not found.\n");
+        print_string("[elf ] Error: file not found\n");
         //while(1);
         return 0;
     }
@@ -37,7 +37,7 @@ uint32_t elf_load(char *filename) {
     char *file_buffer = (char*)kmalloc(aligned_size);
 
     if (!file_buffer) {
-        print_string("[ELF] Error: Out of memory for file buffer.\n");
+        print_string("[elf ] Error: Out of memory for file buffer.\n");
         return 0;
     }
 
@@ -52,18 +52,18 @@ uint32_t elf_load(char *filename) {
         ehdr->e_ident[EI_MAG2] != ELFMAG2 ||
         ehdr->e_ident[EI_MAG3] != ELFMAG3) {
         
-        print_string("[ELF] Error: Invalid ELF Magic.\n");
+        print_string("[elf ] Error: Invalid ELF Magic.\n");
         kfree(file_buffer);
         return 0;
     }
 
     // Check for Executable and Architecture
     if (ehdr->e_type != ET_EXEC) { 
-        print_string("[ELF] Warning: Not an executable file (ET_EXEC).\n");
+        print_string("[elf ] Warning: Not an executable file (ET_EXEC).\n");
     }
 
     if (ehdr->e_machine != EM_386) {
-        print_string("[ELF] Error: Not an i386 file!\n");
+        print_string("[elf ] Error: Not an i386 file!\n");
         kfree(file_buffer);
         return 0;
     }
@@ -75,13 +75,13 @@ uint32_t elf_load(char *filename) {
         // We only care about PT_LOAD segments
         if (phdr[i].p_type == PT_LOAD) {
             
-            print_string("[ELF] Loading Segment at ");
+            print_string("[elf ] Segment at ");
             print_hex(phdr[i].p_vaddr);
-            print_string(", File Size: ");
+            print_string(": ");
             print_hex(phdr[i].p_filesz);
-            print_string(", Mem Size: ");
+            print_string(" bytes from disk, ");
             print_hex(phdr[i].p_memsz);
-            print_string("\n");
+            print_string(" in memory\n");
 
             // Destination in memory (Virtual Address)
             // ---------------------------------------------------------
@@ -101,7 +101,7 @@ uint32_t elf_load(char *filename) {
                 if (!vmm_is_mapped(current_pd, vaddr)) {
                     uint32_t frame = pmm_alloc_block();
                     if (!frame) {
-                        print_string("[ELF] Error: OOM during segment allocation\n");
+                        print_string("[elf ] Error: OOM during segment allocation\n");
                         return 0; // Create fail
                     }
                     
@@ -131,7 +131,7 @@ uint32_t elf_load(char *filename) {
     // Cleanup
     kfree(file_buffer);
 
-    print_string("[ELF] Loaded successfully. Entry point: ");
+    print_string("[elf ] Entry point: ");
     print_hex(entry_point);
     print_string("\n");
     return entry_point;
