@@ -142,6 +142,14 @@ void page_fault_handler(registers_err_t *regs)
                         
                         // 4. Decrement Ref Count of Old Frame
                         pmm_free_block(old_frame); // (Functions as dec_ref)
+
+                        print_string("[cow ] Write to shared page ");
+                        print_hex(faulting_address & 0xFFFFF000);
+                        print_string(": copied frame ");
+                        print_hex(old_frame);
+                        print_string(" -> ");
+                        print_hex(new_frame);
+                        print_string("\n");
                     }
                     
                     // 5. Invalidate TLB for this address
